@@ -1,6 +1,6 @@
-# tabnine-capf
+# tabnine
 
-A capf version of [company-tabnine](https://github.com/TommyX12/company-tabnine).
+A capf/overlay version of [company-tabnine](https://github.com/TommyX12/company-tabnine).
 
 ## Installation
 
@@ -8,32 +8,48 @@ A capf version of [company-tabnine](https://github.com/TommyX12/company-tabnine)
 
 Add following code to your configuration.
 ```emacs
-(use-package tabnine-capf
+(use-package tabnine
   :after cape
-  :straight (:host github :repo "50ways2sayhard/tabnine-capf" :files ("*.el" "*.sh"))
-  :hook (kill-emacs . tabnine-capf-kill-process)
-  :config
-  (add-to-list 'completion-at-point-functions #'tabnine-completion-at-point))
+  :hook (prog-mode . tabnine-mode)
+  :straight (:host github :repo "shuxiao9058/tabnine" :files ("*.el" "*.sh"))
+  :hook (kill-emacs . tabnine-kill-process))
 ```
 
 ### manully
-1. Install `tabnine-capf`.
+1. Install `tabnine`.
 
    Clone or download this repository.
 
    Add to your load path:
 
    ```emacs
-   (add-to-list 'load-path "<path-to-tabnine-capf>")
-   (require 'tabnine-capf)
+   (add-to-list 'load-path "<path-to-tabnine>")
+   (require 'tabnine)
    ```
 
-2. Add `tabnine-completion-at-point` to `completion-at-point-functions`
+2. Enable `tabnine-mode` in `prog`mode.
    ```emacs
-   (add-to-list 'completion-at-point-functions #'tabnine-completion-at-point)
+   (add-to-list 'prog-mode-hook #'tabnine-mode)
    ```
 
-3. Run `M-x company-tabnine-install-binary` to install the TabNine binary for your system.
+3. Run `M-x tabnine-install-binary` to install the TabNine binary for your system.
+
+4. Recommend shortcut binding
+
+```emacs
+(define-key tabnine-mode-map (kbd "C-TAB") #'tabnine-accept-completion-by-word)
+(define-key tabnine-mode-map (kbd "C-<tab>") #'tabnine-accept-completion-by-word)
+
+(define-key tabnine-completion-map (kbd "TAB") #'tabnine-accept-completion)
+(define-key tabnine-completion-map (kbd "<tab>") #'tabnine-accept-completion)
+
+(define-key tabnine-completion-map (kbd "C-g") #'tabnine-clear-overlay)
+(define-key tabnine-completion-map (kbd "M-n") #'tabnine-next-completion)
+(define-key tabnine-completion-map (kbd "M-p") #'tabnine-previous-completion)
+
+(define-key tabnine-mode-map (kbd "TAB") #'tabnine-accept-completion)
+(define-key tabnine-mode-map (kbd "<tab>") #'tabnine-accept-completion)
+```
 
 ### Auto-balance parentheses
 
@@ -45,4 +61,4 @@ TabNine can automatically balance parentheses, by removing and adding closing pa
 
 ## Thanks
 
-Thanks to the great work of [Tommy Xiang](https://github.com/TommyX12).
+Thanks to the great work of [Tommy Xiang](https://github.com/TommyX12) and [zerolfx](https://github.com/zerolfx/copilot.el).
