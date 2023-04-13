@@ -1,6 +1,6 @@
 # tabnine
 
-A capf/overlay version of [company-tabnine](https://github.com/TommyX12/company-tabnine).
+An overlay version of [company-tabnine](https://github.com/TommyX12/company-tabnine).
 
 ## Installation
 
@@ -27,7 +27,7 @@ Add following code to your configuration.
    (require 'tabnine)
    ```
 
-2. Enable `tabnine-mode` in `prog`mode.
+2. Enable `tabnine-mode` in `prog-mode`.
    ```emacs
    (add-to-list 'prog-mode-hook #'tabnine-mode)
    ```

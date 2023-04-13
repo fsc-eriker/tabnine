@@ -1,9 +1,10 @@
-;; tabnine.el --- A company-mode backend for TabNine ;; -*- lexical-binding: t -*-
+;;; tabnine.el --- An unofficial TabNine package for Emacs ;; -*- lexical-binding: t -*-
 ;;
-;; Copyright (c) 2022 Tommy Xiang, John Gong
+;; Copyright (c) 2023 Tommy Xiang, John Gong, Aaron Ji
 ;;
 ;; Author: Tommy Xiang <tommyx058@gmail.com>
 ;;         John Gong <gjtzone@hotmail.com>
+;;         Aaron Ji <shuxiao9058@gmail.com>
 ;; Keywords: convenience
 ;; Version: 0.0.1
 ;; URL: https://github.com/shuxiao9058/tabnine/
@@ -31,12 +32,12 @@
 ;;
 ;; Description:
 ;;
-;; A capf verison of `company-tabnine`.
+;; A overlay verison of `tabnine` emacs package.
 ;;
 ;; Installation:
 ;;
-;; 1. Add `tabnine-completion-at-point` to `completion-at-point-functions`
-;;    (add-to-list 'completion-at-point-functions #'tabnine-completion-at-point)
+;; 1. Enable `tabnine-mode` in `prog-mode`.
+;; (add-to-list 'prog-mode-hook #'tabnine-mode)
 ;; 2. Run M-x tabnine-install-binary to install the TabNine binary for your system.
 ;;
 ;; Usage:
@@ -581,6 +582,22 @@ PROCESS is the process under watch, EVENT is the event occurred."
       (and first-completion (s-present? (plist-get first-completion :new_prefix)))
       )))
 
+(defun tabnine--valid-completion(completion)
+  "Check if the COMPLETION is valid, some completions is stupid."
+  (when completion
+    (let ((new_prefix (plist-get completion :new_prefix))
+	  (old_suffix (plist-get completion :old_suffix)))
+      (s-equals? new_prefix old_suffix))))
+
+(defun tabnine--filter-completions(completions)
+  "Filter duplicates and bad COMPLETIONS result."
+  (when completions
+    (when-let ((completions (cl-remove-duplicates completions
+						  :key (lambda (x) (plist-get x :new_prefix))
+						  :test #'s-equals-p))
+	       (completions (cl-remove-if #'tabnine--valid-completion completions)))
+      completions)))
+
 
 (defun tabnine--process-filter (process output)
   "Filter for TabNine server process.
@@ -601,14 +618,8 @@ PROCESS is the process under watch, OUTPUT is the output received."
       (when (s-present? str)
         (setq result (tabnine--read-json str))
         (setq ss (cdr ss))
-
 	(when (and result (tabnine--valid-response result))
-          (setq tabnine--response result)
-	  )
-        )
-      )
-    )
-  )
+          (setq tabnine--response result))))))
 
 
 ;;
@@ -688,18 +699,16 @@ PROCESS is the process under watch, OUTPUT is the output received."
     (let* ((cache tabnine--completion-cache)
 	   (old_prefix (plist-get cache :old_prefix))
 	   (completions (plist-get cache :results))
-	   (completions (cl-remove-duplicates  completions
-					       :key (lambda (x) (plist-get x :new_prefix))
-					       :test #'s-equals-p)))
+	   (completions (tabnine--filter-completions completions)))
       (cond ((seq-empty-p completions)
-             (message "No completion is available."))
-            ((= (length completions) 1)
-             (message "Only one completion is available."))
-            (t (let ((idx (mod (+ tabnine--completion-idx direction)
+	     (message "No completion is available."))
+	    ((= (length completions) 1)
+	     (message "Only one completion is available."))
+	    (t (let ((idx (mod (+ tabnine--completion-idx direction)
 			       (length completions))))
-                 (setq tabnine--completion-idx idx)
-                 (let ((completion (elt completions idx)))
-                   (tabnine--show-completion old_prefix completion))))))))
+		 (setq tabnine--completion-idx idx)
+		 (let ((completion (elt completions idx)))
+		   (tabnine--show-completion old_prefix completion))))))))
 
 (defsubst tabnine--overlay-visible ()
   "Return whether the `tabnine--overlay' is avaiable."
@@ -777,17 +786,17 @@ USER-POS is the cursor position (for verification only)."
     (save-excursion
       ;; remove common prefix
       (let* ((cur-line (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
-             (common-prefix-len (length (s-shared-start new_prefix cur-line))))
+	     (common-prefix-len (length (s-shared-start new_prefix cur-line))))
         (setq new_prefix (substring new_prefix common-prefix-len))
         (forward-char common-prefix-len))
 
       (when (and (s-present-p new_prefix)
                  (or (= (point) user-pos) ;; up-to-date completion
-                     (and (< (point) user-pos) ;; special case for removing indentation
+		     (and (< (point) user-pos) ;; special case for removing indentation
                           (s-blank-p (s-trim (buffer-substring-no-properties (point) user-pos))))))
         (let* ((ov (tabnine--get-overlay))
 	       (text new_prefix)
-               (line-text-after (buffer-substring-no-properties (point) (line-end-position))))
+	       (line-text-after (buffer-substring-no-properties (point) (line-end-position))))
           ;; determine the text to be displayed
           (when  (and (s-present? new_suffix) tabnine-auto-balance)
 	    (setq text (concat new_prefix new_suffix)))
@@ -825,12 +834,12 @@ Use TRANSFORM-FN to transform completion if provided."
       (insert t-completion)
       ;; if it is a partial completion
       (if (and (s-prefix-p t-completion completion)
-               (not (s-equals-p t-completion completion)))
+	       (not (s-equals-p t-completion completion)))
           (tabnine--set-overlay-text (tabnine--get-overlay) (s-chop-prefix t-completion completion))
 	(when (and tabnine-auto-balance (s-present? old_suffix))
 	  (delete-region (point)
 			 (min (+ (point) (length old_suffix))
-                              (point-max))))
+			      (point-max))))
 	;; full completion
 	;; (when (s-contains? (s-right 1 t-completion) "?})")
         ;;   (newline-and-indent))
@@ -844,10 +853,10 @@ Use TRANSFORM-FN to transform completion if provided."
      (setq n (or n 1))
      (tabnine-accept-completion (lambda (completion)
                                   (with-temp-buffer
-                                    (insert completion)
-                                    (goto-char (point-min))
-                                    (funcall ,action n)
-                                    (buffer-substring-no-properties (point-min) (point)))))))
+				    (insert completion)
+				    (goto-char (point-min))
+				    (funcall ,action n)
+				    (buffer-substring-no-properties (point-min) (point)))))))
 
 (tabnine--define-accept-completion-by-action tabnine-accept-completion-by-word #'forward-word)
 (tabnine--define-accept-completion-by-action tabnine-accept-completion-by-line #'forward-line)
@@ -902,6 +911,7 @@ Use TRANSFORM-FN to transform completion if provided."
     (let* ((result (tabnine--get-completion-result))
 	   (old_prefix (plist-get result :old_prefix))
 	   (completions (plist-get result :results))
+	   (completions (tabnine--filter-completions completions))
            (completion (if (seq-empty-p completions) nil (seq-elt completions 0)))
 	   (caller-function (nth 1 (backtrace-frame 10))))
 
@@ -911,10 +921,10 @@ Use TRANSFORM-FN to transform completion if provided."
 
       (if completion
           (let ((new_prefix (plist-get completion :new_prefix)))
-            (when (s-present? new_prefix)
+	    (when (s-present? new_prefix)
 	      (if (s-starts-with? old_prefix  new_prefix)
 		  (progn
-                    (setq new_prefix (s-chop-prefix old_prefix new_prefix))))
+		    (setq new_prefix (s-chop-prefix old_prefix new_prefix))))
 	      (tabnine--show-completion old_prefix completion)))
         (when called-interactively
 	  (message "No overlay completion is available."))))))
