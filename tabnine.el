@@ -125,9 +125,7 @@
   :type 'integer)
 
 (defcustom tabnine-context-char-limit-before 100000
-  "The number of chars before point to send for completion.
-
-Note that setting this too small will cause TabNine to not be able to read the entire license activation key."
+  "The number of chars before point to send for completion."
   :group 'tabnine
   :type 'integer)
 
@@ -166,8 +164,7 @@ Any successful completion will reset the consecutive count."
   :type 'string)
 
 (defcustom tabnine-install-static-binary (file-exists-p "/etc/nixos/hardware-configuration.nix")
-  "Whether to install the musl-linked static binary instead of
-the standard glibc-linked dynamic binary.
+  "Whether to install the musl-linked static binary instead of the standard glibc-linked dynamic binary.
 Only useful on GNU/Linux.  Automatically set if NixOS is detected."
   :group 'tabnine
   :type 'boolean)
@@ -212,10 +209,6 @@ Resets every time successful completion is returned.")
 
 (defvar tabnine--response-chunks nil
   "The string to store response chunks from TabNine server.")
-
-
-(defvar tabnine--lock (make-mutex "tabnine")
-  "Exclusive lock for TabNine operations.")
 
 
 (defvar-local tabnine--overlay nil
@@ -834,6 +827,10 @@ Use TRANSFORM-FN to transform completion if provided."
       (if (and (s-prefix-p t-completion completion)
                (not (s-equals-p t-completion completion)))
           (tabnine--set-overlay-text (tabnine--get-overlay) (s-chop-prefix t-completion completion))
+	(when (and tabnine-auto-balance (s-present? old_suffix))
+	  (delete-region (point)
+			 (min (+ (point) (length old_suffix))
+                              (point-max))))
 	;; full completion
 	;; (when (s-contains? (s-right 1 t-completion) "?})")
         ;;   (newline-and-indent))
@@ -1042,12 +1039,11 @@ command that triggered `post-command-hook'.
 
 (defun tabnine--post-command-debounce (buffer)
   "Complete in BUFFER."
-  (with-mutex tabnine--lock
-    (when (and (buffer-live-p buffer)
-	       (equal (current-buffer) buffer)
-	       tabnine-mode
-	       (tabnine--satisfy-trigger-predicates))
-      (tabnine-complete))))
+  (when (and (buffer-live-p buffer)
+	     (equal (current-buffer) buffer)
+	     tabnine-mode
+	     (tabnine--satisfy-trigger-predicates))
+    (tabnine-complete)))
 
 
 (defun tabnine--completion-triggers-p()
