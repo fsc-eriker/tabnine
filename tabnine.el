@@ -32,7 +32,7 @@
 ;;
 ;; Description:
 ;;
-;; A overlay verison of `tabnine` emacs package.
+;; An overlay verison of `tabnine` Emacs package.
 ;;
 ;; Installation:
 ;;
@@ -582,7 +582,7 @@ PROCESS is the process under watch, EVENT is the event occurred."
       (and first-completion (s-present? (plist-get first-completion :new_prefix)))
       )))
 
-(defun tabnine--valid-completion(completion)
+(defun tabnine--invalid-completion(completion)
   "Check if the COMPLETION is valid, some completions is stupid."
   (when completion
     (let ((new_prefix (plist-get completion :new_prefix))
@@ -595,7 +595,7 @@ PROCESS is the process under watch, EVENT is the event occurred."
     (when-let ((completions (cl-remove-duplicates completions
 						  :key (lambda (x) (plist-get x :new_prefix))
 						  :test #'s-equals-p))
-	       (completions (cl-remove-if #'tabnine--valid-completion completions)))
+	       (completions (cl-remove-if #'tabnine--invalid-completion completions)))
       completions)))
 
 
@@ -619,7 +619,24 @@ PROCESS is the process under watch, OUTPUT is the output received."
         (setq result (tabnine--read-json str))
         (setq ss (cdr ss))
 	(when (and result (tabnine--valid-response result))
-          (setq tabnine--response result))))))
+          (setq tabnine--response result)
+
+	  (let* ((old_prefix (plist-get result :old_prefix))
+		 (completions (plist-get result :results))
+		 (completions (tabnine--filter-completions completions))
+		 (completion (if (seq-empty-p completions) nil (seq-elt completions 0))))
+
+	    (when (and result (> (length completions) 0) )
+	      (setq tabnine--completion-cache result)
+	      (setq tabnine--completion-idx 0))
+
+	    (when completion
+	      (let ((new_prefix (plist-get completion :new_prefix)))
+		(when (s-present? new_prefix)
+		  (if (s-starts-with? old_prefix  new_prefix)
+		      (progn
+			(setq new_prefix (s-chop-prefix old_prefix new_prefix))))
+		  (tabnine--show-completion old_prefix completion))))))))))
 
 
 ;;
@@ -683,7 +700,8 @@ PROCESS is the process under watch, OUTPUT is the output received."
 
 (defun tabnine--get-completion-result ()
   "Get completions with TabNine."
-  (tabnine-autocomplete)
+  (with-timeout (0.01)
+    (tabnine-autocomplete))
   tabnine--response)
 
 (defun tabnine--get-completions-cycling (callback)
@@ -885,14 +903,14 @@ Use TRANSFORM-FN to transform completion if provided."
 	;; NoScope,
 	;; NewLine,
 	;; CustomTriggerPoints,
-	(when (s-equals? user_intent "NewLine")
-	  ;; check weather need a newline
-	  (let ((buffer-line-count (tabnine--get-line-count)))
-	    (when (<= (1- buffer-line-count) line)
-	      (save-excursion
-		(goto-char (point-max))
-		(newline))))
-	  (setq line (1+ line)))
+	;; (when (s-equals? user_intent "NewLine")
+	;;   ;; check weather need a newline
+	;;   (let ((buffer-line-count (tabnine--get-line-count)))
+	;;     (when (<= (1- buffer-line-count) line)
+	;;       (save-excursion
+	;; 	(goto-char (point-max))
+	;; 	(newline))))
+	;;   (setq line (1+ line)))
 	(when (s-starts-with? old_prefix  new_prefix)
 	  (setq new_prefix (s-chop-prefix old_prefix new_prefix)))
 	(tabnine--display-overlay-completion new_prefix new_suffix old_prefix old_suffix
@@ -909,23 +927,10 @@ Use TRANSFORM-FN to transform completion if provided."
 
   (let ((called-interactively (called-interactively-p 'interactive)))
     (let* ((result (tabnine--get-completion-result))
-	   (old_prefix (plist-get result :old_prefix))
 	   (completions (plist-get result :results))
 	   (completions (tabnine--filter-completions completions))
-           (completion (if (seq-empty-p completions) nil (seq-elt completions 0)))
-	   (caller-function (nth 1 (backtrace-frame 10))))
-
-      (when (and result (> (length completions) 0) )
-	(setq tabnine--completion-cache result)
-	(setq tabnine--completion-idx 0))
-
-      (if completion
-          (let ((new_prefix (plist-get completion :new_prefix)))
-	    (when (s-present? new_prefix)
-	      (if (s-starts-with? old_prefix  new_prefix)
-		  (progn
-		    (setq new_prefix (s-chop-prefix old_prefix new_prefix))))
-	      (tabnine--show-completion old_prefix completion)))
+           (completion (if (seq-empty-p completions) nil (seq-elt completions 0))))
+      (unless completion
         (when called-interactively
 	  (message "No overlay completion is available."))))))
 
