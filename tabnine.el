@@ -32,7 +32,7 @@
 ;;
 ;; Description:
 ;;
-;; An overlay verison of `tabnine` Emacs package.
+;; An unofficial TabNine package for Emacs.
 ;;
 ;; Installation:
 ;;
@@ -211,6 +211,8 @@ Resets every time successful completion is returned.")
 (defvar tabnine--response-chunks nil
   "The string to store response chunks from TabNine server.")
 
+(defvar tabnine--correlation-id 0
+  "Correlation id send to TabNine server for completion.")
 
 (defvar-local tabnine--overlay nil
   "Overlay for TabNine completion.")
@@ -315,7 +317,7 @@ Resets every time successful completion is returned.")
               :line line
               :character character
               :indentation_size indentation_size
-	      )))))
+	      :correlation_id (cl-incf tabnine--correlation-id))))))
    ((eq method 'prefetch)
     (list
      :version tabnine--api-version
@@ -621,12 +623,13 @@ PROCESS is the process under watch, OUTPUT is the output received."
 	(when (and result (tabnine--valid-response result))
           (setq tabnine--response result)
 
-	  (let* ((old_prefix (plist-get result :old_prefix))
+	  (let* ((correlation_id (plist-get result :correlation_id))
+		 (old_prefix (plist-get result :old_prefix))
 		 (completions (plist-get result :results))
 		 (completions (tabnine--filter-completions completions))
 		 (completion (if (seq-empty-p completions) nil (seq-elt completions 0))))
 
-	    (when (and result (> (length completions) 0) )
+	    (when (and result (= correlation_id tabnine--correlation-id) (> (length completions) 0) )
 	      (setq tabnine--completion-cache result)
 	      (setq tabnine--completion-idx 0))
 
@@ -636,7 +639,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
 		  (if (s-starts-with? old_prefix  new_prefix)
 		      (progn
 			(setq new_prefix (s-chop-prefix old_prefix new_prefix))))
-		  (tabnine--show-completion old_prefix completion))))))))))
+		  (tabnine--show-completion correlation_id old_prefix completion))))))))))
 
 
 ;;
@@ -715,6 +718,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
     (unless tabnine--completion-cache
       (setq tabnine--completion-cache result))
     (let* ((cache tabnine--completion-cache)
+	   (correlation_id (plist-get result :correlation_id))
 	   (old_prefix (plist-get cache :old_prefix))
 	   (completions (plist-get cache :results))
 	   (completions (tabnine--filter-completions completions)))
@@ -726,7 +730,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
 			       (length completions))))
 		 (setq tabnine--completion-idx idx)
 		 (let ((completion (elt completions idx)))
-		   (tabnine--show-completion old_prefix completion))))))))
+		   (tabnine--show-completion correlation_id old_prefix completion))))))))
 
 (defsubst tabnine--overlay-visible ()
   "Return whether the `tabnine--overlay' is avaiable."
@@ -887,9 +891,9 @@ Use TRANSFORM-FN to transform completion if provided."
     (line-number-at-pos)))
 
 
-(defun tabnine--show-completion (old_prefix completion)
-  "Show OLD_PREFIX's COMPLETION."
-  (when (and (tabnine--satisfy-display-predicates))
+(defun tabnine--show-completion (correlation_id old_prefix completion)
+  "Show OLD_PREFIX's COMPLETION with validate completion's CORRELATION_ID."
+  (when (and (not tabnine--buffer-changed) (= correlation_id tabnine--correlation-id) (tabnine--satisfy-display-predicates))
     (tabnine--dbind (:new_prefix
 		     :old_suffix :new_suffix :completion_metadata
 		     (:kind :completion_kind :snippet_context (:snippet_id :response_time_ms :completion_index :user_intent))) completion

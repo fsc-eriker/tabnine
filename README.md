@@ -1,6 +1,6 @@
 # tabnine
 
-An overlay version of [company-tabnine](https://github.com/TommyX12/company-tabnine).
+An unofficial TabNine package for Emacs.
 
 ## Installation
 
@@ -9,9 +9,8 @@ An overlay version of [company-tabnine](https://github.com/TommyX12/company-tabn
 Add following code to your configuration.
 ```emacs
 (use-package tabnine
-  :after cape
   :hook (prog-mode . tabnine-mode)
-  :straight (:host github :repo "shuxiao9058/tabnine" :files ("*.el" "*.sh"))
+  :straight (:host github :repo "shuxiao9058/tabnine")
   :hook (kill-emacs . tabnine-kill-process))
 ```
 
