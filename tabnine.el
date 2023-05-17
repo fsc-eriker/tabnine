@@ -202,14 +202,11 @@ Resets every time successful completion is returned.")
 (defvar tabnine--response nil
   "Temporarily stored TabNine server responses.")
 
-(defvar tabnine--disabled nil
-  "Variable to temporarily disable tabnine and pass control to next backend.")
-
-(defvar tabnine--calling-continue nil
-  "Flag for when `company-continue' is being called.")
-
 (defvar tabnine--response-chunks nil
   "The string to store response chunks from TabNine server.")
+
+(defvar-local tabnine--last-correlation-id 0
+  "The last correlation id send to TabNine server for completion.")
 
 (defvar tabnine--correlation-id 0
   "Correlation id send to TabNine server for completion.")
@@ -221,17 +218,11 @@ Resets every time successful completion is returned.")
 (defvar-local tabnine--completion-idx 0)
 
 
-(defvar-local tabnine--line-bias 1
-  "Line bias for TabNine completion.")
-
-
 (defvar tabnine--post-command-timer nil)
-(defvar-local tabnine--buffer-changed nil
-  "Non nil if buffer has changed since last time `tabnine-complete' has been invoked.")
 
-(defun tabnine--buffer-changed-p ()
-  tabnine--buffer-changed)
-
+(defun tabnine--buffer-changed ()
+  "Return non-nil if buffer has changed since last time `tabnine-complete' has been invoked."
+  (not (= tabnine--last-correlation-id tabnine--correlation-id)))
 
 (defmacro tabnine--json-serialize (params)
   (if (progn
@@ -317,7 +308,7 @@ Resets every time successful completion is returned.")
               :line line
               :character character
               :indentation_size indentation_size
-	      :correlation_id (cl-incf tabnine--correlation-id))))))
+	      :correlation_id tabnine--correlation-id)))))
    ((eq method 'prefetch)
     (list
      :version tabnine--api-version
@@ -893,7 +884,8 @@ Use TRANSFORM-FN to transform completion if provided."
 
 (defun tabnine--show-completion (correlation_id old_prefix completion)
   "Show OLD_PREFIX's COMPLETION with validate completion's CORRELATION_ID."
-  (when (and (not tabnine--buffer-changed) (= correlation_id tabnine--correlation-id) (tabnine--satisfy-display-predicates))
+  (when (and (= correlation_id tabnine--correlation-id)
+	     (tabnine--satisfy-display-predicates))
     (tabnine--dbind (:new_prefix
 		     :old_suffix :new_suffix :completion_metadata
 		     (:kind :completion_kind :snippet_context (:snippet_id :response_time_ms :completion_index :user_intent))) completion
@@ -925,7 +917,8 @@ Use TRANSFORM-FN to transform completion if provided."
 (defun tabnine-complete ()
   "Complete at the current point."
   (interactive)
-  (setq tabnine--buffer-changed nil)
+
+  (setq tabnine--last-correlation-id tabnine--correlation-id)
   (setq tabnine--completion-cache nil)
   (setq tabnine--completion-idx 0)
 
@@ -942,21 +935,21 @@ Use TRANSFORM-FN to transform completion if provided."
 ;; minor mode
 ;;
 
-(defcustom tabnine-disable-predicates nil
+(defcustom tabnine-disable-predicates '(window-minibuffer-p)
   "A list of predicate functions with no argument to disable TabNine.
 TabNine will not be triggered if any predicate returns t."
   :type '(repeat function)
   :group 'tabnine)
 
 
-(defcustom tabnine-enable-predicates '(evil-insert-state-p tabnine--buffer-changed-p
+(defcustom tabnine-enable-predicates '(evil-insert-state-p tabnine--buffer-changed
 							   tabnine--completion-triggers-p)
   "A list of predicate functions with no argument to enable TabNine.
 TabNine will be triggered only if all predicates return t."
   :type '(repeat function)
   :group 'tabnine)
 
-(defcustom tabnine-disable-display-predicates nil
+(defcustom tabnine-disable-display-predicates '(window-minibuffer-p)
   "A list of predicate functions with no argument to disable TabNine.
 TabNine will not show completions if any predicate returns t."
   :type '(repeat function)
@@ -1021,7 +1014,7 @@ Use this for custom bindings in `tabnine-mode'.")
   tabnine-mode tabnine-mode)
 
 (defun tabnine--on-change (&reset _args)
-  (setq tabnine--buffer-changed t))
+  (cl-incf tabnine--correlation-id))
 
 (defun tabnine--post-command ()
   "Complete in `post-command-hook' hook."
