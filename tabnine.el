@@ -180,6 +180,12 @@ Only useful on GNU/Linux.  Automatically set if NixOS is detected."
   :group 'tabnine
   :type 'boolean)
 
+(defcustom tabnine-network-proxy nil
+  "Network proxy to use for TabNine. Nil means no proxy.
+Example: 'http://user:password@127.0.0.1:7890'."
+  :type 'string
+  :group 'tabnine)
+
 ;;
 ;; Faces
 ;;
@@ -430,9 +436,18 @@ Resets every time successful completion is returned.")
 (defun tabnine-start-process ()
   "Start TabNine process."
   (tabnine-kill-process)
-  (let ((process-connection-type nil))
+  (let ((process-environment (cl-copy-list process-environment))
+	(process-connection-type nil))
+    (when (and tabnine-network-proxy (or (s-starts-with? "http://" tabnine-network-proxy  t)
+					 (s-starts-with? "https://" tabnine-network-proxy  t)))
+      (setq process-environment
+	    (cl-remove-if (lambda(env) (or (s-starts-with? "HTTP_PROXY=" env t) (s-starts-with? "HTTPS_PROXY=" env t)))
+			  process-environment))
+      (add-to-list 'process-environment (format "HTTPS_PROXY=%s" tabnine-network-proxy))
+      (add-to-list 'process-environment (format "https_proxy=%s" tabnine-network-proxy))
+      (add-to-list 'process-environment (format "HTTP_PROXY=%s" tabnine-network-proxy))
+      (add-to-list 'process-environment (format "http_proxy=%s" tabnine-network-proxy)))
     (setq tabnine--process
-          ;; TODO make process with env (proxy support)
           (make-process
            :name tabnine--process-name
            :buffer tabnine--buffer-name
