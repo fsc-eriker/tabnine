@@ -175,6 +175,11 @@ Only useful on GNU/Linux.  Automatically set if NixOS is detected."
   :group 'tabnine
   :type 'string)
 
+(defcustom tabnine-debug-file-path nil
+  "If non-nil, will log debug messages to tabnine-debug-file-path named file."
+  :group 'tabnine
+  :type 'string)
+
 (defcustom tabnine-auto-balance t
   "Whether TabNine should insert balanced parentheses upon completion."
   :group 'tabnine
@@ -222,7 +227,6 @@ Resets every time successful completion is returned.")
 
 (defvar-local tabnine--completion-cache nil)
 (defvar-local tabnine--completion-idx 0)
-
 
 (defvar tabnine--post-command-timer nil)
 
@@ -277,7 +281,7 @@ Resets every time successful completion is returned.")
                        (tabnine--json-serialize request)
                        "\n")))
 	 (setq tabnine--response nil)
-	 (tabnine--log-to-buffer "Write to TabNine process" encoded)
+	 (tabnine--log-to-debug-file "Write to TabNine process" encoded)
 	 (process-send-string tabnine--process encoded)
 	 (accept-process-output tabnine--process tabnine-wait)))))
 
@@ -523,7 +527,6 @@ Resets every time successful completion is returned.")
   (let ((request (tabnine--make-request 'configuration)))
     (tabnine--send-request request)))
 
-
 ;;
 ;; Major mode definition
 ;;
@@ -537,13 +540,14 @@ Resets every time successful completion is returned.")
   (let ((insertion-text (cdr (assq 'insertion_text candidate))))
     (s-starts-with? prefix insertion-text t)))
 
-(defun tabnine--log-to-buffer(prefix text)
+(defun tabnine--log-to-debug-file(prefix text)
   "Log to TabNine debug buffer, PREFIX is log prefix and TEXT is the log body."
-  (when tabnine--buffer-name
-    (with-current-buffer (get-buffer-create tabnine--buffer-name)
-      (goto-char (point-max))
-      (insert (format "====== %s START %s ====== \n%s ====== END ======\n" (format-time-string "%Y-%m-%d %H:%M:%S" (current-time)) prefix text)))))
-
+  (when tabnine-debug-file-path
+    (let ((str (format "====== %s START %s ====== \n%s ====== END ======\n" (format-time-string "%Y-%m-%d %H:%M:%S" (current-time)) prefix text))
+	  (message-log-max nil))
+      (with-temp-buffer
+	(insert str)
+	(write-region (point-min) (point-max) tabnine-debug-file-path t 'silent)))))
 
 (defun tabnine--infer-indentation-offset ()
   "Infer indentation offset."
@@ -594,20 +598,34 @@ PROCESS is the process under watch, EVENT is the event occurred."
 	  (old_suffix (plist-get completion :old_suffix)))
       (s-equals? new_prefix old_suffix))))
 
-(defun tabnine--filter-completions(completions)
-  "Filter duplicates and bad COMPLETIONS result."
+(defun tabnine--capf-candidate-test(completion)
+  "Test COMPLETION is capf result."
+  (tabnine--dbind (:completion_metadata
+		   (:kind :completion_kind)) completion
+    (and completion_kind (equal completion_kind "Classic"))))
+
+(defun tabnine--not-capf-candidate-test(completion)
+  "Test COMPLETION is not capf result."
+  (not (tabnine--capf-candidate-test completion)))
+
+(defun tabnine--filter-completions(completions filter-fn)
+  "Filter duplicates and bad COMPLETIONS result and with FILTER-FN."
   (when completions
     (when-let ((completions (cl-remove-duplicates completions
 						  :key (lambda (x) (plist-get x :new_prefix))
 						  :test #'s-equals-p))
-	       (completions (cl-remove-if #'tabnine--invalid-completion completions)))
+	       (completions (cl-remove-if (lambda(x)
+					    (or (not (funcall filter-fn x))
+						(tabnine--invalid-completion x))) completions))
+	       ;; (completions (cl-remove-if-not filter-fn completions))
+	       )
       completions)))
 
 
 (defun tabnine--process-filter (process output)
   "Filter for TabNine server process.
 PROCESS is the process under watch, OUTPUT is the output received."
-  (tabnine--log-to-buffer "Read from TabNine process" output)
+  (tabnine--log-to-debug-file "Read from TabNine process" output)
   (push output tabnine--response-chunks)
 
   (let* ((response
@@ -629,8 +647,9 @@ PROCESS is the process under watch, OUTPUT is the output received."
 	  (let* ((correlation_id (plist-get result :correlation_id))
 		 (old_prefix (plist-get result :old_prefix))
 		 (completions (plist-get result :results))
-		 (completions (tabnine--filter-completions completions))
-		 (completion (if (seq-empty-p completions) nil (seq-elt completions 0))))
+		 (completions (tabnine--filter-completions completions #'tabnine--not-capf-candidate-test))
+		 (completion (if (seq-empty-p completions) nil (seq-elt completions 0)))
+		 (completion-data))
 
 	    (when (and result (= correlation_id tabnine--correlation-id) (> (length completions) 0) )
 	      (setq tabnine--completion-cache result)
@@ -882,8 +901,7 @@ Use TRANSFORM-FN to transform completion if provided."
 	(let* ((ov (tabnine--get-overlay))
 	       (completion-str (if (s-present? new_suffix)
 				   (concat new_prefix new_suffix)
-				 new_prefix)
-			       )
+				 new_prefix))
 	       (completion-data
 		(list  :completion completion-str
 		       :new_prefix new_prefix
@@ -923,7 +941,7 @@ Use TRANSFORM-FN to transform completion if provided."
   (let ((called-interactively (called-interactively-p 'interactive)))
     (let* ((result (tabnine--get-completion-result))
 	   (completions (plist-get result :results))
-	   (completions (tabnine--filter-completions completions))
+	   (completions (tabnine--filter-completions completions #'tabnine--capf-candidate-test))
            (completion (if (seq-empty-p completions) nil (seq-elt completions 0))))
       (unless completion
         (when called-interactively
@@ -1062,6 +1080,105 @@ command that triggered `post-command-hook'.
     (or (and tabnine-completion-triggers before (s-contains? (char-to-string before) tabnine-completion-triggers))
 	(and tabnine-minimum-prefix-length symbol (>= (length symbol) tabnine-minimum-prefix-length))
 	(not tabnine-minimum-prefix-length))))
+
+
+;;
+;; capf
+;;
+
+(defun tabnine--kind-to-type (kind)
+  (pcase kind
+    (1 "Text")
+    (2 "Method")
+    (3 "Function")
+    (4 "Constructor")
+    (5 "Field")
+    (6 "Variable")
+    (7 "Class")
+    (8 "Interface")
+    (9 "Module")
+    (10 "Property" )
+    (11 "Unit" )
+    (12 "Value" )
+    (13 "Enum")
+    (14 "Keyword" )
+    (15 "Snippet")
+    (16 "Color")
+    (17 "File")
+    (18 "Reference")
+    (19 "Folder")
+    (20 "EnumMember")
+    (21 "Constant")
+    (22 "Struct")
+    (23 "Event")
+    (24 "Operator")
+    (25 "TypeParameter")))
+
+(defun tabnine--construct-candidate-generic (candidate)
+  "Generic function to construct completion string from a CANDIDATE."
+  (tabnine--dbind (:new_prefix
+		   :old_suffix :new_suffix :completion_metadata
+		   (:kind :detail :completion_kind :snippet_context (:snippet_id :response_time_ms :completion_index :user_intent))) candidate
+    (let ((type (tabnine--kind-to-type kind)))
+      (propertize
+       new_prefix
+       'old_suffix old_suffix
+       'new_suffix new_suffix
+       'kind kind
+       'type type
+       'detail detail
+       'annotation
+       (concat (or detail "") " " (or type ""))))))
+
+(defun tabnine--construct-candidates (results construct-candidate-fn)
+  "Use CONSTRUCT-CANDIDATE-FN to construct a list of candidates from RESULTS."
+  (let ((completions (mapcar construct-candidate-fn results)))
+    completions))
+
+(defun tabnine--get-candidates ()
+  "Get candidates for RESPONSE."
+  (when tabnine--response
+    (tabnine--construct-candidates
+     (let* ((completions (plist-get tabnine--response :results))
+	    (completions (tabnine--filter-completions completions #'tabnine--capf-candidate-test)))
+       completions)
+     #'tabnine--construct-candidate-generic)))
+
+(defun tabnine--post-completion (candidate)
+  "Replace old suffix with new suffix for CANDIDATE."
+  (when tabnine-auto-balance
+    (let ((old_suffix (get-text-property 0 'old_suffix candidate))
+          (new_suffix (get-text-property 0 'new_suffix candidate)))
+      (delete-region (point)
+                     (min (+ (point) (length old_suffix))
+                          (point-max)))
+      (when (stringp new_suffix)
+        (save-excursion
+          (insert new_suffix))))))
+
+;;;###autoload
+(defun tabnine-completion-at-point ()
+  "TabNine Completion at point function."
+  (tabnine-complete)
+  (let* ((bounds (bounds-of-thing-at-point 'symbol))
+         (candidates (tabnine--get-candidates))
+	 (get-candidates (lambda () candidates)))
+    (list
+     (or (car bounds) (point))
+     (or (cdr bounds) (point))
+     candidates
+     :exclusive 'no
+     :company-kind (lambda (_) (intern "tabnine"))
+     :annotation-function
+     (lambda (candidate)
+       "Extract integer from company-tabnine's CANDIDATE."
+       (concat "  "(get-text-property 0 'annotation candidate)))
+     :exit-function
+     (lambda (candidate status)
+       "Post-completion function for tabnine."
+       (let ((item (cl-find candidate (funcall get-candidates) :test #'string=)))
+         (tabnine--post-completion item)
+         )))))
 
 
 ;; Advices
