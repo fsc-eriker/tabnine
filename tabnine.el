@@ -349,7 +349,6 @@ Resets every time successful completion is returned.")
      :version tabnine--api-version
      :request
      (list :Configuration '(:__ t))))
-   ;; SaveSnippet
    ;; NotifyWorkspaceChanged
    ;; setState
    ;; StartupActions
@@ -522,7 +521,7 @@ Resets every time successful completion is returned.")
     (tabnine--send-request request)))
 
 (defun tabnine-configuration ()
-  "Get identifier regex from TabNine server."
+  "Open TabNine configuration page."
   (interactive)
   (let ((request (tabnine--make-request 'configuration)))
     (tabnine--send-request request)))
@@ -600,9 +599,10 @@ PROCESS is the process under watch, EVENT is the event occurred."
 
 (defun tabnine--capf-candidate-test(completion)
   "Test COMPLETION is capf result."
-  (tabnine--dbind (:completion_metadata
-		   (:kind :completion_kind)) completion
-    (and completion_kind (equal completion_kind "Classic"))))
+  (tabnine--dbind (:new_prefix :completion_metadata
+			       (:kind :completion_kind)) completion
+    (let ((line (length (s-split "\n" (s-trim new_prefix)))))
+      (and completion_kind (not (and (equal completion_kind "Snippet") (> line 1) ))))))
 
 (defun tabnine--not-capf-candidate-test(completion)
   "Test COMPLETION is not capf result."
@@ -616,9 +616,7 @@ PROCESS is the process under watch, EVENT is the event occurred."
 						  :test #'s-equals-p))
 	       (completions (cl-remove-if (lambda(x)
 					    (or (not (funcall filter-fn x))
-						(tabnine--invalid-completion x))) completions))
-	       ;; (completions (cl-remove-if-not filter-fn completions))
-	       )
+						(tabnine--invalid-completion x))) completions)))
       completions)))
 
 
@@ -722,10 +720,12 @@ PROCESS is the process under watch, OUTPUT is the output received."
         (delete-file version-tempfile)
         (message "TabNine installation complete.")))))
 
-(defun tabnine--get-completion-result ()
-  "Get completions with TabNine."
-  (with-timeout (0.01)
-    (tabnine-autocomplete))
+(defun tabnine--get-completion-result (capf)
+  "Get completions with TabNine, when CAPF is t with capf."
+  (if capf
+      (tabnine-autocomplete)
+    (with-timeout (0.01)
+      (tabnine-autocomplete)))
   tabnine--response)
 
 (defun tabnine--get-completions-cycling (callback)
@@ -742,7 +742,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
 	   (correlation_id (plist-get result :correlation_id))
 	   (old_prefix (plist-get cache :old_prefix))
 	   (completions (plist-get cache :results))
-	   (completions (tabnine--filter-completions completions)))
+	   (completions (tabnine--filter-completions completions #'tabnine--not-capf-candidate-test)))
       (cond ((seq-empty-p completions)
 	     (message "No completion is available."))
 	    ((= (length completions) 1)
@@ -930,18 +930,18 @@ Use TRANSFORM-FN to transform completion if provided."
   )
 
 ;;;###autoload
-(defun tabnine-complete ()
-  "Complete at the current point."
-  (interactive)
+(defun tabnine-complete (arg)
+  "Complete at the current point with ARG, if arg is set, call from capf."
+  (interactive "P")
 
   (setq tabnine--last-correlation-id tabnine--correlation-id)
   (setq tabnine--completion-cache nil)
   (setq tabnine--completion-idx 0)
 
   (let ((called-interactively (called-interactively-p 'interactive)))
-    (let* ((result (tabnine--get-completion-result))
+    (let* ((result (tabnine--get-completion-result arg))
 	   (completions (plist-get result :results))
-	   (completions (tabnine--filter-completions completions #'tabnine--capf-candidate-test))
+	   (completions (tabnine--filter-completions completions #'tabnine--not-capf-candidate-test))
            (completion (if (seq-empty-p completions) nil (seq-elt completions 0))))
       (unless completion
         (when called-interactively
@@ -1070,7 +1070,7 @@ command that triggered `post-command-hook'.
 	     (equal (current-buffer) buffer)
 	     tabnine-mode
 	     (tabnine--satisfy-trigger-predicates))
-    (tabnine-complete)))
+    (tabnine-complete nil)))
 
 
 (defun tabnine--completion-triggers-p()
@@ -1087,6 +1087,7 @@ command that triggered `post-command-hook'.
 ;;
 
 (defun tabnine--kind-to-type (kind)
+  "Convert KIND to lsp type."
   (pcase kind
     (1 "Text")
     (2 "Method")
@@ -1138,11 +1139,20 @@ command that triggered `post-command-hook'.
 (defun tabnine--get-candidates ()
   "Get candidates for RESPONSE."
   (when tabnine--response
-    (tabnine--construct-candidates
-     (let* ((completions (plist-get tabnine--response :results))
-	    (completions (tabnine--filter-completions completions #'tabnine--capf-candidate-test)))
-       completions)
-     #'tabnine--construct-candidate-generic)))
+    (let ((candidates (tabnine--construct-candidates
+		       (let* ((completions (plist-get tabnine--response :results))
+			      (completions (tabnine--filter-completions completions #'tabnine--capf-candidate-test)))
+			 completions)
+		       #'tabnine--construct-candidate-generic)))
+      (cl-sort candidates
+	       (lambda(a b)
+		 (let* ((candidate-detail-number
+			 (lambda(x)
+			   (let ((detail (get-text-property 0 'detail x)))
+			     (string-to-number (s-trim detail)))))
+			(detail-a (funcall candidate-detail-number a))
+			(detail-b (funcall candidate-detail-number b)))
+		   (> detail-a detail-b)))))))
 
 (defun tabnine--post-completion (candidate)
   "Replace old suffix with new suffix for CANDIDATE."
@@ -1159,7 +1169,7 @@ command that triggered `post-command-hook'.
 ;;;###autoload
 (defun tabnine-completion-at-point ()
   "TabNine Completion at point function."
-  (tabnine-complete)
+  (tabnine-complete t)
   (let* ((bounds (bounds-of-thing-at-point 'symbol))
          (candidates (tabnine--get-candidates))
 	 (get-candidates (lambda () candidates)))
