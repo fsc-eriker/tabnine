@@ -231,6 +231,7 @@ Resets every time successful completion is returned.")
   (not (= tabnine--last-correlation-id tabnine--correlation-id)))
 
 (defmacro tabnine--json-serialize (params)
+  "Return PARAMS JSON serialized result."
   (if (progn
         (require 'json)
         (fboundp 'json-serialize))
@@ -242,7 +243,7 @@ Resets every time successful completion is returned.")
 
 
 (defmacro tabnine--read-json (str)
-  "Read json string STR.  and return the decoded object."
+  "Read JSON string STR.  and return the decoded object."
   (if (progn
         (require 'json)
         (fboundp 'json-parse-string))
@@ -266,14 +267,12 @@ Resets every time successful completion is returned.")
        (process-live-p tabnine--process)))
 
 (defmacro tabnine--send-request (request)
-  "Send a REQUEST to the TabNine process.
-  REQUEST needs to be JSON-serializable object."
+  "Send a REQUEST to the TabNine process. REQUEST needs to be JSON-serializable object."
   `(progn
      (unless (tabnine--process-alivep)
        (tabnine-start-process))
 
      (when tabnine--process
-       ;; TODO make sure utf-8 encoding works
        (let ((encoded (concat
                        (tabnine--json-serialize request)
                        "\n")))
@@ -489,8 +488,6 @@ Resets every time successful completion is returned.")
   (dolist (hook tabnine--hooks-alist)
     (remove-hook (car hook) (cdr hook))))
 
-
-
 ;;
 ;; TabNine all operations
 ;;
@@ -647,7 +644,6 @@ PROCESS is the process under watch, OUTPUT is the output received."
 			(setq new_prefix (s-chop-prefix old_prefix new_prefix))))
 		  (tabnine--show-completion correlation_id old_prefix completion))))))))))
 
-
 ;;
 ;; Interactive functions
 ;;
@@ -696,7 +692,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
 				       (expand-file-name bundle-path)
 				       (expand-file-name target-directory)))))
           ('error
-           (error "Unable to unzip automatically. Please go to [%s] and unzip the content of [%s] into [%s/]."
+           (error "Unable to unzip automatically. Please go to [%s] and unzip the content of [%s] into [%s/]"
                   (expand-file-name version-directory)
                   (file-name-nondirectory bundle-path)
                   (file-name-sans-extension (file-name-nondirectory bundle-path)))))
@@ -785,13 +781,15 @@ To work around posn problems with after-string property.")
     (overlay-put tabnine--overlay 'priority 100))
   tabnine--overlay)
 
-(defun tabnine--set-overlay-text (ov completion line-text-after)
-  "Set overlay OV with COMPLETION and LINE-TEXT-AFTER."
-  (move-overlay ov (point) (let ((line-end-pos))
-			     (if line-text-after
-				 (- (line-end-position) (length line-text-after))
-			       (line-end-position))))
-  (let ((p-completion (propertize completion 'face 'tabnine-overlay-face)))
+(defun tabnine--overlay-end (ov)
+  "Return the end position of overlay OV."
+  (- (line-end-position) (overlay-get ov 'tail-length)))
+
+(defun tabnine--set-overlay-text (ov completion)
+  "Set overlay OV with COMPLETION."
+  (move-overlay ov (point) (line-end-position))
+  (let* ((tail (buffer-substring (tabnine--overlay-end ov) (line-end-position)))
+	 (p-completion (propertize completion 'face 'tabnine-overlay-face)))
     (if (eolp)
         (progn
           (overlay-put ov 'after-string "") ; make sure posn is correct
@@ -803,37 +801,6 @@ To work around posn problems with after-string property.")
       (overlay-put ov 'after-string (substring p-completion 1)))
     (overlay-put ov 'completion completion)
     (overlay-put ov 'start (point))))
-
-(defun tabnine--display-overlay-completion (new_prefix new_suffix old_prefix old_suffix user_intent user-pos)
-  "Show COMPLETION with UUID, NEW_PREFIX, NEW_SUFFIX, OLD_PREFIX and OLD_SUFFIX in overlay at LINE and COL.
-For TabNine, COL is always 0.
-USER-POS is the cursor position (for verification only)."
-  (tabnine-clear-overlay)
-  (save-restriction
-    (widen)
-    (save-excursion
-      ;; remove common prefix
-      (let* ((cur-line (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
-	     (common-prefix-len (length (s-shared-start new_prefix cur-line))))
-        (setq new_prefix (substring new_prefix common-prefix-len))
-        (forward-char common-prefix-len))
-
-      (when (and (s-present-p new_prefix)
-                 (or (= (point) user-pos) ;; up-to-date completion
-		     (and (< (point) user-pos) ;; special case for removing indentation
-                          (s-blank-p (s-trim (buffer-substring-no-properties (point) user-pos))))))
-        (let* ((ov (tabnine--get-overlay))
-	       (text new_prefix)
-	       (line-text-after (buffer-substring-no-properties (point) (line-end-position))))
-          ;; determine the text to be displayed
-          (when  (and (s-present? new_suffix) tabnine-auto-balance)
-	    (setq text (concat new_prefix new_suffix)))
-          (tabnine--set-overlay-text ov text line-text-after)
-          (overlay-put ov 'new_prefix new_prefix)
-          (overlay-put ov 'new_suffix new_suffix)
-          (overlay-put ov 'old_prefix old_prefix)
-          (overlay-put ov 'old_suffix old_suffix)
-	  (overlay-put ov 'user_intent user_intent))))))
 
 (defun tabnine-clear-overlay ()
   "Clear TabNine overlay."
@@ -849,29 +816,33 @@ Use TRANSFORM-FN to transform completion if provided."
   (when (tabnine--overlay-visible)
     (let* ((ov tabnine--overlay)
            (completion (overlay-get ov 'completion))
-           (start (overlay-get ov 'start))
-           (user_intent (overlay-get ov 'user_intent))
+	   (start (overlay-get ov 'start))
+           (end (tabnine--overlay-end ov))
            (new_prefix (overlay-get ov 'new_prefix))
-           (new_suffix (overlay-get ov 'new_suffix))
-           (old_prefix (overlay-get ov 'old_prefix))
-           (old_suffix (overlay-get ov 'old_suffix))
+	   (new_suffix (overlay-get ov 'new_suffix))
+	   (old_suffix (overlay-get ov 'old_suffix))
            (t-completion (funcall (or transform-fn #'identity) completion)))
       (tabnine-clear-overlay)
+      (when (and tabnine-auto-balance (s-present? old_suffix))
+	(delete-region (point)
+		       (min (+ (point) (length old_suffix))
+			    (point-max))))
+      (if (eq major-mode 'vterm-mode)
+          (progn
+            (vterm-delete-region start end)
+            (vterm-insert t-completion)))
       ;; maybe should not delete this line
       ;; (delete-region start (line-end-position))
       (insert t-completion)
+
       ;; if it is a partial completion
       (if (and (s-prefix-p t-completion completion)
 	       (not (s-equals-p t-completion completion)))
           (tabnine--set-overlay-text (tabnine--get-overlay) (s-chop-prefix t-completion completion))
-	(when (and tabnine-auto-balance (s-present? old_suffix))
-	  (delete-region (point)
-			 (min (+ (point) (length old_suffix))
-			      (point-max))))
-	;; full completion
-	;; (when (s-contains? (s-right 1 t-completion) "?})")
-        ;;   (newline-and-indent))
-	)
+	(when (and (s-present? new_suffix) (s-present? new_prefix))
+	  (when-let* ((left (s-chop-prefix new_prefix t-completion))
+		      (len (length left)))
+	    (backward-char len))))
       t)))
 
 (defmacro tabnine--define-accept-completion-by-action (func-name action)
@@ -904,29 +875,41 @@ Use TRANSFORM-FN to transform completion if provided."
     (tabnine--dbind (:new_prefix
 		     :old_suffix :new_suffix :completion_metadata
 		     (:kind :completion_kind :snippet_context (:snippet_id :response_time_ms :completion_index :user_intent))) completion
-      (let ((uuid snippet_id)
-	    (line (- (line-number-at-pos) 1))
-	    (character (- (point) (line-beginning-position)))
-	    (pos  (point)))
-	;; Comment,
-	;; Block,
-	;; FunctionDeclaration,
-	;; NoScope,
-	;; NewLine,
-	;; CustomTriggerPoints,
-	;; (when (s-equals? user_intent "NewLine")
-	;;   ;; check weather need a newline
-	;;   (let ((buffer-line-count (tabnine--get-line-count)))
-	;;     (when (<= (1- buffer-line-count) line)
-	;;       (save-excursion
-	;; 	(goto-char (point-max))
-	;; 	(newline))))
-	;;   (setq line (1+ line)))
-	(when (s-starts-with? old_prefix  new_prefix)
-	  (setq new_prefix (s-chop-prefix old_prefix new_prefix)))
-	(tabnine--display-overlay-completion new_prefix new_suffix old_prefix old_suffix
-					     user_intent (point))))))
+      (when (s-starts-with? old_prefix  new_prefix)
+	(setq new_prefix (s-chop-prefix old_prefix new_prefix)))
+      (save-restriction
+	(widen)
+	(let* ((ov (tabnine--get-overlay))
+	       (completion-str (if (s-present? new_suffix)
+				   (concat new_prefix new_suffix)
+				 new_prefix)
+			       )
+	       (completion-data
+		(list  :completion completion-str
+		       :new_prefix new_prefix
+		       :new_suffix new_suffix
+		       :old_suffix old_suffix
+		       :pos (point))))
+	  (tabnine--display-overlay-completion completion-data))))))
 
+(defun tabnine--display-overlay-completion (completion)
+  "Show COMPLETION with overlay ."
+  (tabnine-clear-overlay)
+  (let ((completion-str (plist-get completion :completion))
+	(old_suffix (plist-get completion :old_suffix))
+	(new_suffix (plist-get completion :new_suffix))
+	(new_prefix (plist-get completion :new_prefix))
+	(pos (plist-get  completion :pos)))
+    (when (s-present-p completion-str)
+      (save-excursion
+	(goto-char pos) ; removing indentation
+	(let* ((ov (tabnine--get-overlay)))
+	  (overlay-put ov 'tail-length (- (line-end-position) pos))
+	  (overlay-put ov 'old_suffix old_suffix)
+	  (overlay-put ov 'new_suffix new_suffix)
+	  (overlay-put ov 'new_prefix new_prefix)
+	  (tabnine--set-overlay-text ov completion-str)))))
+  )
 
 ;;;###autoload
 (defun tabnine-complete ()
@@ -1053,7 +1036,6 @@ Use this for custom bindings in `tabnine-mode'.")
 If so, update the overlays and continue. COMMAND is the
 command that triggered `post-command-hook'.
 "
-
   (when (and (eq command 'self-insert-command)
 	     (tabnine--overlay-visible)
 	     (tabnine--satisfy-display-predicates))
@@ -1091,9 +1073,8 @@ command that triggered `post-command-hook'.
 ;;
 
 (defun ~advice/tabnine-prefetch (orig-func &rest args)
-  (when (buffer-file-name)
+  (when (and tabnine-mode (buffer-file-name))
     (tabnine-prefetch)))
-
 
 (eval-after-load 'tabnine
   (advice-add 'switch-to-buffer :after #'~advice/tabnine-prefetch))
