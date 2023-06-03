@@ -2,6 +2,16 @@
 
 An unofficial TabNine package for Emacs.
 
+## Screenshot
+
+- Snippets displayed  with overlay,  screenshot:
+
+ ![screenshot-1.png](./assets/screenshot-1.png)
+
+- Classic completions displayed with `completion-at-point-functions`  screenshot (corfu)
+
+ ![screenshot-2.png](./assets/screenshot-2.png)
+
 ## Installation
 
 ### straight-use-package
@@ -11,7 +21,9 @@ Add following code to your configuration.
 (use-package tabnine
   :hook (prog-mode . tabnine-mode)
   :straight (:host github :repo "shuxiao9058/tabnine")
-  :hook (kill-emacs . tabnine-kill-process))
+  :hook (kill-emacs . tabnine-kill-process)
+  :config
+  (add-to-list 'completion-at-point-functions #'tabnine-completion-at-point))
 ```
 
 ### manully
@@ -36,18 +48,48 @@ Add following code to your configuration.
 4. Recommend shortcut binding
 
 ```emacs
-(define-key tabnine-mode-map (kbd "C-TAB") #'tabnine-accept-completion-by-word)
-(define-key tabnine-mode-map (kbd "C-<tab>") #'tabnine-accept-completion-by-word)
+(define-key tabnine-completion-map (kbd "M-f") #'tabnine-accept-completion-by-word)
+(define-key tabnine-completion-map (kbd "M-<return>") #'tabnine-accept-completion-by-line)
 
 (define-key tabnine-completion-map (kbd "TAB") #'tabnine-accept-completion)
 (define-key tabnine-completion-map (kbd "<tab>") #'tabnine-accept-completion)
 
 (define-key tabnine-completion-map (kbd "C-g") #'tabnine-clear-overlay)
-(define-key tabnine-completion-map (kbd "M-n") #'tabnine-next-completion)
-(define-key tabnine-completion-map (kbd "M-p") #'tabnine-previous-completion)
+(define-key tabnine-completion-map (kbd "M-[") #'tabnine-next-completion)
+(define-key tabnine-completion-map (kbd "M-]") #'tabnine-previous-completion)
 
 (define-key tabnine-mode-map (kbd "TAB") #'tabnine-accept-completion)
 (define-key tabnine-mode-map (kbd "<tab>") #'tabnine-accept-completion)
+```
+
+5. Example of configure with `use-package`.
+
+```emacs-lisp
+(use-package tabnine
+  :after (on)
+  :commands (tabnine-start-process)
+  :hook (prog-mode . tabnine-mode)
+  :straight (tabnine :package "tabnine"
+		     :type git
+		     :host github :repo "shuxiao9058/tabnine")
+  :diminish "⌬"
+  :custom
+  (tabnine-wait 1)
+  (tabnine-minimum-prefix-length 0)
+  :hook ((on-first-input . tabnine-start-process)
+	 (kill-emacs . tabnine-kill-process))
+  :config
+  (add-to-list 'completion-at-point-functions #'tabnine-completion-at-point)
+  :bind
+  (:map tabnine-mode-map
+	("TAB" . tabnine-accept-completion)
+	("<tab>" . tabnine-accept-completion))
+  (:map  tabnine-completion-map
+	 ("M-f" . tabnine-accept-completion-by-word)
+	 ("M-<return>" . tabnine-accept-completion-by-line)
+	 ("C-g" . tabnine-clear-overlay)
+	 ("M-[" . tabnine-previous-completion)
+	 ("M-]" . tabnine-next-completion)))
 ```
 
 ### Auto-balance parentheses

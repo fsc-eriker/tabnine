@@ -534,11 +534,6 @@ Resets every time successful completion is returned.")
 ;; Auto completion
 ;;
 
-(defun tabnine--prefix-candidate-p (candidate prefix)
-  "Return t if CANDIDATE string begins with PREFIX."
-  (let ((insertion-text (cdr (assq 'insertion_text candidate))))
-    (s-starts-with? prefix insertion-text t)))
-
 (defun tabnine--log-to-debug-file(prefix text)
   "Log to TabNine debug buffer, PREFIX is log prefix and TEXT is the log body."
   (when tabnine-debug-file-path
@@ -609,16 +604,16 @@ PROCESS is the process under watch, EVENT is the event occurred."
   (not (tabnine--capf-candidate-test completion)))
 
 (defun tabnine--filter-completions(completions filter-fn)
-  "Filter duplicates and bad COMPLETIONS result and with FILTER-FN."
+  "Filter duplicates and bad COMPLETIONS result, then filter with FILTER-FN function."
   (when completions
     (when-let ((completions (cl-remove-duplicates completions
 						  :key (lambda (x) (plist-get x :new_prefix))
 						  :test #'s-equals-p))
-	       (completions (cl-remove-if (lambda(x)
-					    (or (not (funcall filter-fn x))
-						(tabnine--invalid-completion x))) completions)))
+	       (completions (cl-remove-if
+			     (lambda(x)
+			       (or (not (funcall filter-fn x))
+				   (tabnine--invalid-completion x))) completions)))
       completions)))
-
 
 (defun tabnine--process-filter (process output)
   "Filter for TabNine server process.
@@ -1146,12 +1141,12 @@ command that triggered `post-command-hook'.
 		       #'tabnine--construct-candidate-generic)))
       (cl-sort candidates
 	       (lambda(a b)
-		 (let* ((candidate-detail-number
+		 (let* ((get-candidate-detail-number-fn
 			 (lambda(x)
 			   (let ((detail (get-text-property 0 'detail x)))
 			     (string-to-number (s-trim detail)))))
-			(detail-a (funcall candidate-detail-number a))
-			(detail-b (funcall candidate-detail-number b)))
+			(detail-a (funcall get-candidate-detail-number-fn a))
+			(detail-b (funcall get-candidate-detail-number-fn b)))
 		   (> detail-a detail-b)))))))
 
 (defun tabnine--post-completion (candidate)
