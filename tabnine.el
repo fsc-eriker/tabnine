@@ -187,7 +187,7 @@ Only useful on GNU/Linux.  Automatically set if NixOS is detected."
 
 (defcustom tabnine-network-proxy nil
   "Network proxy to use for TabNine. Nil means no proxy.
-Example: 'http://user:password@127.0.0.1:7890'."
+e.g: http://user:password@127.0.0.1:7890"
   :type 'string
   :group 'tabnine)
 
@@ -246,8 +246,8 @@ Resets every time successful completion is returned.")
         (require 'json)
         (fboundp 'json-serialize))
       `(json-serialize ,params
-                       :null-object nil
-                       :false-object :json-false)
+		       :null-object nil
+		       :false-object :json-false)
     `(let ((json-false :json-false))
        (json-encode ,params))))
 
@@ -284,8 +284,8 @@ Resets every time successful completion is returned.")
 
      (when tabnine--process
        (let ((encoded (concat
-                       (tabnine--json-serialize request)
-                       "\n")))
+		       (tabnine--json-serialize request)
+		       "\n")))
 	 (setq tabnine--response nil)
 	 (tabnine--log-to-debug-file "Write to TabNine process" encoded)
 	 (process-send-string tabnine--process encoded)
@@ -311,18 +311,18 @@ Resets every time successful completion is returned.")
        :request
        (list :Autocomplete
              (list
-              :before (buffer-substring-no-properties before-point (point))
-              :after (buffer-substring-no-properties (point) after-point)
-              :filename (or (buffer-file-name) nil)
-              :region_includes_beginning (if (= before-point buffer-min)
+	      :before (buffer-substring-no-properties before-point (point))
+	      :after (buffer-substring-no-properties (point) after-point)
+	      :filename (or (buffer-file-name) nil)
+	      :region_includes_beginning (if (= before-point buffer-min)
                                              t json-false)
-              :region_includes_end (if (= after-point buffer-max)
+	      :region_includes_end (if (= after-point buffer-max)
 				       t json-false)
-              :max_num_results tabnine-max-num-results
-              :offset offset
-              :line line
-              :character character
-              :indentation_size indentation_size
+	      :max_num_results tabnine-max-num-results
+	      :offset offset
+	      :line line
+	      :character character
+	      :indentation_size indentation_size
 	      :correlation_id tabnine--correlation-id)))))
    ((eq method 'prefetch)
     (list
@@ -427,9 +427,9 @@ Resets every time successful completion is returned.")
                                            parent))))
 			      (--filter (ignore-errors (version-to-list it)))
 			      (-non-nil)))
-               (sorted (nreverse (sort children #'version<)))
-               (target (tabnine--get-target))
-               (filename (tabnine--get-exe)))
+	       (sorted (nreverse (sort children #'version<)))
+	       (target (tabnine--get-target))
+	       (filename (tabnine--get-exe)))
           (cl-loop
            for ver in sorted
            for fullpath = (expand-file-name (format "%s/%s/%s"
@@ -624,7 +624,7 @@ PROCESS is the process under watch, EVENT is the event occurred."
       (not display-with-overlay))))
 
 (defun tabnine--filter-completions(completions)
-  "Filter duplicates and bad COMPLETIONS result, then filter with FILTER-FN function."
+  "Filter duplicates and bad COMPLETIONS result."
   (when completions
     (when-let ((completions (cl-remove-duplicates completions
 						  :key (lambda (x) (plist-get x :new_prefix))
@@ -827,9 +827,13 @@ Use TRANSFORM-FN to transform completion if provided."
            (new_prefix (overlay-get ov 'new_prefix))
 	   (new_suffix (overlay-get ov 'new_suffix))
 	   (old_suffix (overlay-get ov 'old_suffix))
-           (t-completion (funcall (or transform-fn #'identity) completion)))
+           (t-completion (funcall (or transform-fn #'identity) completion))
+	   (full-completion (s-equals-p t-completion completion))
+	   (partial-completion (and (s-prefix-p t-completion completion)
+				    (not full-completion))))
       (tabnine-clear-overlay)
-      (when (and tabnine-auto-balance (s-present? old_suffix))
+      (when (and tabnine-auto-balance full-completion
+		 (s-present? old_suffix) (not (string= old_suffix "\n")))
 	(delete-region (point)
 		       (min (+ (point) (length old_suffix))
 			    (point-max))))
@@ -842,11 +846,10 @@ Use TRANSFORM-FN to transform completion if provided."
       (insert t-completion)
 
       ;; if it is a partial completion
-      (if (and (s-prefix-p t-completion completion)
-	       (not (s-equals-p t-completion completion)))
+      (if partial-completion
           (tabnine--set-overlay-text (tabnine--get-overlay) (s-chop-prefix t-completion completion))
 	(when (and (s-present? new_suffix) (s-present? new_prefix))
-	  (when-let* ((left (s-chop-prefix new_prefix t-completion))
+	  (when-let* ((left (s-chop-prefix new_prefix completion))
 		      (len (length left)))
 	    (backward-char len))))
       t)))
@@ -1093,7 +1096,6 @@ command that triggered `post-command-hook'.
     (or (and tabnine-completion-triggers before (s-contains? (char-to-string before) tabnine-completion-triggers))
 	(and tabnine-minimum-prefix-length symbol (>= (length symbol) tabnine-minimum-prefix-length))
 	(not tabnine-minimum-prefix-length))))
-
 
 ;;
 ;; capf
