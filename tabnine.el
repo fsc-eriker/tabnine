@@ -228,6 +228,9 @@ Resets every time successful completion is returned.")
 (defvar-local tabnine--completion-cache nil)
 (defvar-local tabnine--completion-idx 0)
 
+(defvar-local tabnine--trigger-with-capf nil
+  "Completion trigger with capf for TabNine.")
+
 (defvar tabnine--post-command-timer nil)
 
 (defun tabnine--buffer-changed ()
@@ -495,36 +498,38 @@ Resets every time successful completion is returned.")
 ;; TabNine all operations
 ;;
 
+(defmacro tabnine--request (method)
+  "Send TabNine `METHOD` request and get response in json."
+  (declare (indent 2))
+  `(progn
+     (let ((request (tabnine--make-request ,method)))
+       (tabnine--send-request request)
+       tabnine--response)))
+
 (defun tabnine-autocomplete ()
   "Query TabNine server for auto-complete."
-  (let ((request (tabnine--make-request 'autocomplete)))
-    (tabnine--send-request request)))
+  (tabnine--request 'autocomplete))
 
 (defun tabnine-prefetch ()
   "Prefetch buffer."
-  (let ((request (tabnine--make-request 'prefetch)))
-    (tabnine--send-request request)))
+  (tabnine--request 'prefetch))
 
 (defun tabnine-capabilities ()
   "Query TabNine server Capabilities."
-  (let ((request (tabnine--make-request 'capabilities)))
-    (tabnine--send-request request)))
+  (tabnine--request 'capabilities))
 
 (defun tabnine-state ()
   "Query TabNine Service State."
-  (let ((request (tabnine--make-request 'state)))
-    (tabnine--send-request request)))
+  (tabnine--request 'state))
 
 (defun tabnine-getidentifierregex ()
   "Get identifier regex from TabNine server."
-  (let ((request (tabnine--make-request 'getidentifierregex)))
-    (tabnine--send-request request)))
+  (tabnine--request 'identifierregex))
 
 (defun tabnine-configuration ()
   "Open TabNine configuration page."
   (interactive)
-  (let ((request (tabnine--make-request 'configuration)))
-    (tabnine--send-request request)))
+  (tabnine--request 'configuration))
 
 ;;
 ;; Major mode definition
@@ -592,27 +597,35 @@ PROCESS is the process under watch, EVENT is the event occurred."
 	  (old_suffix (plist-get completion :old_suffix)))
       (s-equals? new_prefix old_suffix))))
 
-(defun tabnine--capf-candidate-test(completion)
+(defun tabnine--completion-capf-p(completion)
   "Test COMPLETION is capf result."
   (tabnine--dbind (:new_prefix :completion_metadata
 			       (:kind :completion_kind)) completion
     (let ((line (length (s-split "\n" (s-trim new_prefix)))))
-      (and completion_kind (not (and (equal completion_kind "Snippet") (> line 1) ))))))
+      (<= line 2)
+      ;; (not (<= line 2))
+      ;; (and completion_kind (not (and ;; (equal completion_kind "Snippet")
+      ;; 				 (> line 1) )))
+      )))
 
-(defun tabnine--not-capf-candidate-test(completion)
-  "Test COMPLETION is not capf result."
-  (not (tabnine--capf-candidate-test completion)))
+(defun tabnine--response-display-with-capf-p(response)
+  "Test RESPONSE weather display with overlay."
+  (when response
+    (let* ((display-with-overlay)
+	   (results (plist-get response :results)))
+      (mapcar (lambda(x)
+		(unless (tabnine--completion-capf-p x)
+		  (setq display-with-overlay t))) results)
+      (not display-with-overlay))))
 
-(defun tabnine--filter-completions(completions filter-fn)
+(defun tabnine--filter-completions(completions)
   "Filter duplicates and bad COMPLETIONS result, then filter with FILTER-FN function."
   (when completions
     (when-let ((completions (cl-remove-duplicates completions
 						  :key (lambda (x) (plist-get x :new_prefix))
 						  :test #'s-equals-p))
-	       (completions (cl-remove-if
-			     (lambda(x)
-			       (or (not (funcall filter-fn x))
-				   (tabnine--invalid-completion x))) completions)))
+	       (completions (cl-remove-if #'tabnine--invalid-completion
+					  completions)))
       completions)))
 
 (defun tabnine--process-filter (process output)
@@ -636,25 +649,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
         (setq ss (cdr ss))
 	(when (and result (tabnine--valid-response result))
           (setq tabnine--response result)
-
-	  (let* ((correlation_id (plist-get result :correlation_id))
-		 (old_prefix (plist-get result :old_prefix))
-		 (completions (plist-get result :results))
-		 (completions (tabnine--filter-completions completions #'tabnine--not-capf-candidate-test))
-		 (completion (if (seq-empty-p completions) nil (seq-elt completions 0)))
-		 (completion-data))
-
-	    (when (and result (= correlation_id tabnine--correlation-id) (> (length completions) 0) )
-	      (setq tabnine--completion-cache result)
-	      (setq tabnine--completion-idx 0))
-
-	    (when completion
-	      (let ((new_prefix (plist-get completion :new_prefix)))
-		(when (s-present? new_prefix)
-		  (if (s-starts-with? old_prefix  new_prefix)
-		      (progn
-			(setq new_prefix (s-chop-prefix old_prefix new_prefix))))
-		  (tabnine--show-completion correlation_id old_prefix completion))))))))))
+	  )))))
 
 ;;
 ;; Interactive functions
@@ -715,14 +710,6 @@ PROCESS is the process under watch, OUTPUT is the output received."
         (delete-file version-tempfile)
         (message "TabNine installation complete.")))))
 
-(defun tabnine--get-completion-result (capf)
-  "Get completions with TabNine, when CAPF is t with capf."
-  (if capf
-      (tabnine-autocomplete)
-    (with-timeout (0.01)
-      (tabnine-autocomplete)))
-  tabnine--response)
-
 (defun tabnine--get-completions-cycling (callback)
   "Get completion cycling options with CALLBACK."
   (when tabnine--completion-cache
@@ -737,7 +724,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
 	   (correlation_id (plist-get result :correlation_id))
 	   (old_prefix (plist-get cache :old_prefix))
 	   (completions (plist-get cache :results))
-	   (completions (tabnine--filter-completions completions #'tabnine--not-capf-candidate-test)))
+	   (completions (tabnine--filter-completions completions)))
       (cond ((seq-empty-p completions)
 	     (message "No completion is available."))
 	    ((= (length completions) 1)
@@ -881,14 +868,12 @@ Use TRANSFORM-FN to transform completion if provided."
     (goto-char (point-max))
     (line-number-at-pos)))
 
-
 (defun tabnine--show-completion (correlation_id old_prefix completion)
   "Show OLD_PREFIX's COMPLETION with validate completion's CORRELATION_ID."
   (when (and (= correlation_id tabnine--correlation-id)
 	     (tabnine--satisfy-display-predicates))
     (tabnine--dbind (:new_prefix
-		     :old_suffix :new_suffix :completion_metadata
-		     (:kind :completion_kind :snippet_context (:snippet_id :response_time_ms :completion_index :user_intent))) completion
+		     :old_suffix :new_suffix) completion
       (when (s-starts-with? old_prefix  new_prefix)
 	(setq new_prefix (s-chop-prefix old_prefix new_prefix)))
       (save-restriction
@@ -902,6 +887,7 @@ Use TRANSFORM-FN to transform completion if provided."
 		       :new_prefix new_prefix
 		       :new_suffix new_suffix
 		       :old_suffix old_suffix
+		       :correlation_id correlation_id
 		       :pos (point))))
 	  (tabnine--display-overlay-completion completion-data))))))
 
@@ -912,17 +898,18 @@ Use TRANSFORM-FN to transform completion if provided."
 	(old_suffix (plist-get completion :old_suffix))
 	(new_suffix (plist-get completion :new_suffix))
 	(new_prefix (plist-get completion :new_prefix))
+	(correlation_id (plist-get completion :correlation_id))
 	(pos (plist-get  completion :pos)))
     (when (s-present-p completion-str)
       (save-excursion
 	(goto-char pos) ; removing indentation
 	(let* ((ov (tabnine--get-overlay)))
 	  (overlay-put ov 'tail-length (- (line-end-position) pos))
+	  (overlay-put ov 'correlation_id correlation_id)
 	  (overlay-put ov 'old_suffix old_suffix)
 	  (overlay-put ov 'new_suffix new_suffix)
 	  (overlay-put ov 'new_prefix new_prefix)
-	  (tabnine--set-overlay-text ov completion-str)))))
-  )
+	  (tabnine--set-overlay-text ov completion-str))))))
 
 ;;;###autoload
 (defun tabnine-complete (arg)
@@ -932,15 +919,37 @@ Use TRANSFORM-FN to transform completion if provided."
   (setq tabnine--last-correlation-id tabnine--correlation-id)
   (setq tabnine--completion-cache nil)
   (setq tabnine--completion-idx 0)
+  (setq tabnine--trigger-with-capf (if arg t))
 
   (let ((called-interactively (called-interactively-p 'interactive)))
-    (let* ((result (tabnine--get-completion-result arg))
+    (let* ((result (if tabnine--trigger-with-capf
+		       (tabnine-autocomplete)
+		     (with-timeout (0.2)
+		       (tabnine-autocomplete))))
+	   (correlation_id (plist-get result :correlation_id))
+	   (old_prefix (plist-get result :old_prefix))
 	   (completions (plist-get result :results))
-	   (completions (tabnine--filter-completions completions #'tabnine--not-capf-candidate-test))
+	   (completions (tabnine--filter-completions completions))
            (completion (if (seq-empty-p completions) nil (seq-elt completions 0))))
-      (unless completion
+      (if completion
+	  (progn
+	    (when (and result (= correlation_id tabnine--correlation-id) (> (length completions) 0) )
+	      (setq tabnine--completion-cache result)
+	      (setq tabnine--completion-idx 0))
+	    (let ((new_prefix (plist-get completion :new_prefix)))
+	      (when (s-present? new_prefix)
+		(if (s-starts-with? old_prefix  new_prefix)
+		    (progn
+		      (setq new_prefix (s-chop-prefix old_prefix new_prefix))))
+		(if (or (not tabnine--trigger-with-capf)
+			(and tabnine--trigger-with-capf
+			     (not (tabnine--response-display-with-capf-p result))))
+		    (tabnine--show-completion correlation_id old_prefix completion)
+		  ))))
+
         (when called-interactively
-	  (message "No overlay completion is available."))))))
+	  (message "No overlay completion is available.")))
+      )))
 
 ;;
 ;; minor mode
@@ -974,7 +983,6 @@ TabNine will show completions only if all predicates return t."
 
 (defcustom tabnine-completion-triggers " .(){}[],:'\",=<>/\\+-|&*%=$#@!\n\r\t\v"
   "Completion triggers.")
-
 
 (defmacro tabnine--satisfy-predicates (enable disable)
   "Return t if satisfy all predicates in ENABLE and none in DISABLE."
@@ -1037,7 +1045,9 @@ Use this for custom bindings in `tabnine-mode'.")
                         (tabnine--self-insert this-command)))))
     (tabnine-clear-overlay)
     (when tabnine--post-command-timer
-      (cancel-timer tabnine--post-command-timer))
+      (progn
+	(cancel-timer tabnine--post-command-timer)
+	(setq tabnine--trigger-with-capf nil)))
     (setq tabnine--post-command-timer
           (run-with-idle-timer tabnine-idle-delay
 			       nil
@@ -1114,7 +1124,7 @@ command that triggered `post-command-hook'.
   "Generic function to construct completion string from a CANDIDATE."
   (tabnine--dbind (:new_prefix
 		   :old_suffix :new_suffix :completion_metadata
-		   (:kind :detail :completion_kind :snippet_context (:snippet_id :response_time_ms :completion_index :user_intent))) candidate
+		   (:kind :detail)) candidate
     (let ((type (tabnine--kind-to-type kind)))
       (propertize
        new_prefix
@@ -1131,13 +1141,11 @@ command that triggered `post-command-hook'.
   (let ((completions (mapcar construct-candidate-fn results)))
     completions))
 
-(defun tabnine--get-candidates ()
+(defun tabnine--get-candidates (response)
   "Get candidates for RESPONSE."
-  (when tabnine--response
+  (when (tabnine--response-display-with-capf-p response)
     (let ((candidates (tabnine--construct-candidates
-		       (let* ((completions (plist-get tabnine--response :results))
-			      (completions (tabnine--filter-completions completions #'tabnine--capf-candidate-test)))
-			 completions)
+		       (plist-get response :results)
 		       #'tabnine--construct-candidate-generic)))
       (cl-sort candidates
 	       (lambda(a b)
@@ -1166,7 +1174,17 @@ command that triggered `post-command-hook'.
   "TabNine Completion at point function."
   (tabnine-complete t)
   (let* ((bounds (bounds-of-thing-at-point 'symbol))
-         (candidates (tabnine--get-candidates))
+	 (response tabnine--response)
+	 (ov (tabnine--get-overlay))
+	 (ov-correlation-id  (overlay-get ov 'correlation_id))
+	 (correlation_id (plist-get response :correlation_id))
+	 (display-with-overlay (equal ov-correlation-id correlation_id))
+         (candidates  (let* ((candidates (tabnine--get-candidates response))
+			     (len (length candidates)))
+			(when (> len 1)
+			  (when (and display-with-overlay candidates)
+			    (tabnine-clear-overlay))
+			  candidates)))
 	 (get-candidates (lambda () candidates)))
     (list
      (or (car bounds) (point))
