@@ -187,7 +187,7 @@ Only useful on GNU/Linux.  Automatically set if NixOS is detected."
 
 (defcustom tabnine-network-proxy nil
   "Network proxy to use for TabNine. Nil means no proxy.
-e.g: http://user:password@127.0.0.1:7890"
+e.g.: http://user:password@127.0.0.1:7890"
   :type 'string
   :group 'tabnine)
 
@@ -530,7 +530,7 @@ Resets every time successful completion is returned.")
   (tabnine--request 'identifierregex))
 
 (defun tabnine-configuration ()
-  "Open TabNine configuration page."
+  "Open TabNine Hub page."
   (interactive)
   (tabnine--request 'configuration))
 
@@ -629,6 +629,11 @@ PROCESS is the process under watch, EVENT is the event occurred."
     (when-let ((completions (cl-remove-duplicates completions
 						  :key (lambda (x) (plist-get x :new_prefix))
 						  :test #'s-equals-p))
+	       (completions (cl-remove-duplicates completions
+						  :key (lambda (x) (let ((new_prefix (plist-get x :new_prefix))
+									 (new_posfix (plist-get x :new_posfix)))
+								     (s-trim (concat new_prefix (or new_posfix "")))))
+						  :test #'s-equals-p))
 	       (completions (cl-remove-if #'tabnine--invalid-completion-p
 					  completions)))
       completions)))
@@ -652,9 +657,11 @@ PROCESS is the process under watch, OUTPUT is the output received."
       (when (s-present? str)
         (setq result (tabnine--read-json str))
         (setq ss (cdr ss))
-	(when (and result (tabnine--valid-response result))
-          (setq tabnine--response result)
-	  )))))
+	(setq tabnine--response result)
+	;; (when (and result (tabnine--valid-response result))
+        ;;   (setq tabnine--response result)
+	;;   )
+	))))
 
 ;;
 ;; Interactive functions
