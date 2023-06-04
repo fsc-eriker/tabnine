@@ -233,6 +233,9 @@ Resets every time successful completion is returned.")
 
 (defvar tabnine--post-command-timer nil)
 
+(defvar tabnine--mutex (make-mutex "tabnine")
+  "Global mutex for TabNine completion.")
+
 (defun tabnine--buffer-changed ()
   "Return non-nil if buffer has changed since last time `tabnine-complete' has been invoked."
   (not (= tabnine--last-correlation-id tabnine--correlation-id)))
@@ -501,7 +504,7 @@ Resets every time successful completion is returned.")
 (defmacro tabnine--request (method)
   "Send TabNine `METHOD` request and get response in json."
   (declare (indent 2))
-  `(progn
+  `(with-mutex tabnine--mutex
      (let ((request (tabnine--make-request ,method)))
        (tabnine--send-request request)
        tabnine--response)))
@@ -590,7 +593,7 @@ PROCESS is the process under watch, EVENT is the event occurred."
       (and first-completion (s-present? (plist-get first-completion :new_prefix)))
       )))
 
-(defun tabnine--invalid-completion(completion)
+(defun tabnine--invalid-completion-p(completion)
   "Check if the COMPLETION is valid, some completions is stupid."
   (when completion
     (let ((new_prefix (plist-get completion :new_prefix))
@@ -614,8 +617,10 @@ PROCESS is the process under watch, EVENT is the event occurred."
     (let* ((display-with-overlay)
 	   (results (plist-get response :results)))
       (mapcar (lambda(x)
-		(unless (tabnine--completion-capf-p x)
+	    	(unless (tabnine--completion-capf-p x)
 		  (setq display-with-overlay t))) results)
+      (when (not tabnine--trigger-with-capf)
+	(setq display-with-overlay t))
       (not display-with-overlay))))
 
 (defun tabnine--filter-completions(completions)
@@ -624,7 +629,7 @@ PROCESS is the process under watch, EVENT is the event occurred."
     (when-let ((completions (cl-remove-duplicates completions
 						  :key (lambda (x) (plist-get x :new_prefix))
 						  :test #'s-equals-p))
-	       (completions (cl-remove-if #'tabnine--invalid-completion
+	       (completions (cl-remove-if #'tabnine--invalid-completion-p
 					  completions)))
       completions)))
 
@@ -922,8 +927,13 @@ Use TRANSFORM-FN to transform completion if provided."
   (setq tabnine--trigger-with-capf (if arg t))
 
   (let ((called-interactively (called-interactively-p 'interactive)))
-    (let* ((result (if tabnine--trigger-with-capf
-		       (tabnine-autocomplete)
+    (let* ((cached-result tabnine--response)
+	   (cached-correlation-id (plist-get cached-result :correlation_id))
+	   (result (if tabnine--trigger-with-capf
+		       (if (and cached-result
+				(equal cached-correlation-id tabnine--correlation-id))
+			   cached-result
+			 (tabnine-autocomplete))
 		     (with-timeout (0.2)
 		       (tabnine-autocomplete))))
 	   (correlation_id (plist-get result :correlation_id))
@@ -941,11 +951,9 @@ Use TRANSFORM-FN to transform completion if provided."
 		(if (s-starts-with? old_prefix  new_prefix)
 		    (progn
 		      (setq new_prefix (s-chop-prefix old_prefix new_prefix))))
-		(if (or (not tabnine--trigger-with-capf)
-			(and tabnine--trigger-with-capf
-			     (not (tabnine--response-display-with-capf-p result))))
-		    (tabnine--show-completion correlation_id old_prefix completion)
-		  ))))
+		(when (not (tabnine--response-display-with-capf-p result))
+		  (tabnine--show-completion correlation_id old_prefix completion))
+		)))
 
         (when called-interactively
 	  (message "No overlay completion is available.")))
@@ -1179,11 +1187,9 @@ command that triggered `post-command-hook'.
 	 (ov-correlation-id  (overlay-get ov 'correlation_id))
 	 (correlation_id (plist-get response :correlation_id))
 	 (display-with-overlay (equal ov-correlation-id correlation_id))
-         (candidates  (let* ((candidates (tabnine--get-candidates response))
-			     (len (length candidates)))
-			(when (> len 1)
-			  (when (and display-with-overlay candidates)
-			    (tabnine-clear-overlay))
+         (candidates  (let* ((candidates (tabnine--get-candidates response)))
+			(when (tabnine--response-display-with-capf-p response)
+			  (tabnine-clear-overlay)
 			  candidates)))
 	 (get-candidates (lambda () candidates)))
     (list
