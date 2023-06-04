@@ -228,6 +228,9 @@ Resets every time successful completion is returned.")
 (defvar-local tabnine--completion-cache nil)
 (defvar-local tabnine--completion-idx 0)
 
+(defvar tabnine--completion-cache-result nil
+  "Temporarily TabNine completion cache responses.")
+
 (defvar-local tabnine--trigger-with-capf nil
   "Completion trigger with capf for TabNine.")
 
@@ -287,6 +290,7 @@ Resets every time successful completion is returned.")
 		       (tabnine--json-serialize request)
 		       "\n")))
 	 (setq tabnine--response nil)
+	 ;; (setq tabnine--completion-cache-result nil)
 	 (tabnine--log-to-debug-file "Write to TabNine process" encoded)
 	 (process-send-string tabnine--process encoded)
 	 (accept-process-output tabnine--process tabnine-wait)))))
@@ -511,7 +515,17 @@ Resets every time successful completion is returned.")
 
 (defun tabnine-autocomplete ()
   "Query TabNine server for auto-complete."
-  (tabnine--request 'autocomplete))
+  (let ((num 0)
+	(result))
+    (while (and (< num 3) (not result))
+      (setq result
+	    (or (let ((cached-result (or tabnine--completion-cache-result tabnine--response)))
+		  (when (tabnine--response-latest-completion-p cached-result)
+		    cached-result))
+		(tabnine--request 'autocomplete)))
+      (setq num (1+ num))
+      (sleep-for 0.05))
+    result))
 
 (defun tabnine-prefetch ()
   "Prefetch buffer."
@@ -612,7 +626,7 @@ PROCESS is the process under watch, EVENT is the event occurred."
       )))
 
 (defun tabnine--response-display-with-capf-p(response)
-  "Test RESPONSE weather display with overlay."
+  "Test RESPONSE whether display with overlay."
   (when response
     (let* ((display-with-overlay)
 	   (results (plist-get response :results)))
@@ -622,6 +636,11 @@ PROCESS is the process under watch, EVENT is the event occurred."
       (when (not tabnine--trigger-with-capf)
 	(setq display-with-overlay t))
       (not display-with-overlay))))
+
+(defun tabnine--response-latest-completion-p(response)
+  "Test RESPONSE if the latest completion."
+  (when response
+    (equal tabnine--correlation-id (plist-get response :correlation_id))))
 
 (defun tabnine--filter-completions(completions)
   "Filter duplicates and bad COMPLETIONS result."
@@ -658,9 +677,8 @@ PROCESS is the process under watch, OUTPUT is the output received."
         (setq result (tabnine--read-json str))
         (setq ss (cdr ss))
 	(setq tabnine--response result)
-	;; (when (and result (tabnine--valid-response result))
-        ;;   (setq tabnine--response result)
-	;;   )
+	(when (and result (tabnine--valid-response result))
+          (setq tabnine--completion-cache-result result))
 	))))
 
 ;;
@@ -877,11 +895,6 @@ Use TRANSFORM-FN to transform completion if provided."
 (tabnine--define-accept-completion-by-action tabnine-accept-completion-by-line #'forward-line)
 (tabnine--define-accept-completion-by-action tabnine-accept-completion-by-paragraph #'forward-paragraph)
 
-(defun tabnine--get-line-count()
-  "Get current buffer's line count."
-  (save-excursion
-    (goto-char (point-max))
-    (line-number-at-pos)))
 
 (defun tabnine--show-completion (correlation_id old_prefix completion)
   "Show OLD_PREFIX's COMPLETION with validate completion's CORRELATION_ID."
@@ -937,13 +950,9 @@ Use TRANSFORM-FN to transform completion if provided."
   (setq tabnine--trigger-with-capf (if arg t))
 
   (let ((called-interactively (called-interactively-p 'interactive)))
-    (let* ((cached-result tabnine--response)
-	   (cached-correlation-id (plist-get cached-result :correlation_id))
+    (let* ((cached-result tabnine--completion-cache-result)
 	   (result (if tabnine--trigger-with-capf
-		       (if (and cached-result
-				(equal cached-correlation-id tabnine--correlation-id))
-			   cached-result
-			 (tabnine-autocomplete))
+		       (tabnine-autocomplete)
 		     (with-timeout (0.2)
 		       (tabnine-autocomplete))))
 	   (correlation_id (plist-get result :correlation_id))
@@ -1191,25 +1200,28 @@ command that triggered `post-command-hook'.
   "TabNine Completion at point function."
   (tabnine-complete t)
   (let* ((bounds (bounds-of-thing-at-point 'symbol))
-	 (response tabnine--response)
+	 (pt (point))
+	 (start        (or (car bounds) pt))
+	 (end          (or (cdr bounds) pt))
+	 (response tabnine--completion-cache-result)
 	 (ov (tabnine--get-overlay))
 	 (ov-correlation-id  (overlay-get ov 'correlation_id))
 	 (correlation_id (plist-get response :correlation_id))
 	 (display-with-overlay (equal ov-correlation-id correlation_id))
          (candidates  (let* ((candidates (tabnine--get-candidates response)))
 			(when (tabnine--response-display-with-capf-p response)
-			  (tabnine-clear-overlay)
 			  candidates)))
 	 (get-candidates (lambda () candidates)))
     (list
-     (or (car bounds) (point))
-     (or (cdr bounds) (point))
+     start
+     end
      candidates
      :exclusive 'no
      :company-kind (lambda (_) (intern "tabnine"))
      :annotation-function
      (lambda (candidate)
        "Extract integer from company-tabnine's CANDIDATE."
+       (tabnine-clear-overlay)
        (concat "  "(get-text-property 0 'annotation candidate)))
      :exit-function
      (lambda (candidate status)
