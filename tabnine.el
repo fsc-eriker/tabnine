@@ -599,8 +599,8 @@ PROCESS is the process under watch, EVENT is the event occurred."
       (setq tabnine--consecutive-restart-count
             (1+ tabnine--consecutive-restart-count)))))
 
-(defun tabnine--valid-response(response)
-  "Check if the RESPONSE is valid complition result."
+(defun tabnine--valid-response-p(response)
+  "Check whether the RESPONSE is valid completion result."
   (when response
     (let* ((results (plist-get response :results))
            (first-completion (if (seq-empty-p results) nil (seq-elt results 0))))
@@ -615,7 +615,7 @@ PROCESS is the process under watch, EVENT is the event occurred."
       (s-equals? new_prefix old_suffix))))
 
 (defun tabnine--completion-capf-p(completion)
-  "Test COMPLETION is capf result."
+  "Check COMPLETION is capf result."
   (tabnine--dbind (:new_prefix :completion_metadata
 			       (:kind :completion_kind)) completion
     (let ((line (length (s-split "\n" (s-trim new_prefix)))))
@@ -677,8 +677,9 @@ PROCESS is the process under watch, OUTPUT is the output received."
         (setq result (tabnine--read-json str))
         (setq ss (cdr ss))
 	(setq tabnine--response result)
-	(when (and result (tabnine--valid-response result))
-          (setq tabnine--completion-cache-result result))
+	(when (and result (tabnine--valid-response-p result))
+          (setq tabnine--completion-cache-result result)
+	  (tabnine--show-completion-1 result))
 	))))
 
 ;;
@@ -765,21 +766,30 @@ PROCESS is the process under watch, OUTPUT is the output received."
 		 (let ((completion (elt completions idx)))
 		   (tabnine--show-completion correlation_id old_prefix completion))))))))
 
-(defsubst tabnine--overlay-visible ()
+(defsubst tabnine--overlay-visible-p ()
   "Return whether the `tabnine--overlay' is avaiable."
   (and (overlayp tabnine--overlay)
        (overlay-buffer tabnine--overlay)))
 
+(defun tabnine--overlay-displaying-result (result)
+  "Return t while `tabnine--overlay' is displaying the RESULT."
+  (let* ((ov (tabnine--get-overlay))
+	 (ov-correlation-id (overlay-get ov 'correlation_id))
+	 (ov-completion-index (overlay-get ov 'completion_index))
+	 (correlation_id (plist-get result :correlation_id)))
+    (and (equal ov-correlation-id correlation_id)
+	 (tabnine--overlay-visible-p))))
+
 (defun tabnine-next-completion ()
   "Cycle to next completion."
   (interactive)
-  (when (tabnine--overlay-visible)
+  (when (tabnine--overlay-visible-p)
     (tabnine--get-completions-cycling (tabnine--cycle-completion 1))))
 
 (defun tabnine-previous-completion ()
   "Cycle to previous completion."
   (interactive)
-  (when (tabnine--overlay-visible)
+  (when (tabnine--overlay-visible-p)
     (tabnine--get-completions-cycling (tabnine--cycle-completion -1))))
 
 
@@ -790,7 +800,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
 
 (defun tabnine-current-completion ()
   "Get current completion."
-  (and (tabnine--overlay-visible)
+  (and (tabnine--overlay-visible-p)
        (overlay-get tabnine--overlay 'completion)))
 
 (defface tabnine-overlay-face
@@ -836,7 +846,7 @@ To work around posn problems with after-string property.")
 (defun tabnine-clear-overlay ()
   "Clear TabNine overlay."
   (interactive)
-  (when (tabnine--overlay-visible)
+  (when (tabnine--overlay-visible-p)
     (delete-overlay tabnine--overlay)
     (setq tabnine--real-posn nil)))
 
@@ -844,7 +854,7 @@ To work around posn problems with after-string property.")
   "Accept completion.  Return t if there is a completion.
 Use TRANSFORM-FN to transform completion if provided."
   (interactive)
-  (when (tabnine--overlay-visible)
+  (when (tabnine--overlay-visible-p)
     (let* ((ov tabnine--overlay)
            (completion (overlay-get ov 'completion))
 	   (start (overlay-get ov 'start))
@@ -895,13 +905,31 @@ Use TRANSFORM-FN to transform completion if provided."
 (tabnine--define-accept-completion-by-action tabnine-accept-completion-by-line #'forward-line)
 (tabnine--define-accept-completion-by-action tabnine-accept-completion-by-paragraph #'forward-paragraph)
 
+(defun tabnine--show-completion-1 (response)
+  "Show completion result after first get RESPONSE."
+  (when-let* ((result response)
+	      (completions (plist-get result :results))
+	      (completions (tabnine--filter-completions completions))
+              (completion (if (seq-empty-p completions) nil (seq-elt completions 0)))
+	      (old_prefix (plist-get result :old_prefix))
+	      (new_prefix (plist-get completion :new_prefix))
+	      (correlation_id (plist-get result :correlation_id)))
+    (unless (tabnine--overlay-displaying-result result)
+      (when (s-present? new_prefix)
+	(when (s-starts-with? old_prefix new_prefix)
+	  (setq new_prefix (s-chop-prefix old_prefix new_prefix)))
+	(tabnine--show-completion correlation_id old_prefix completion) ;; alway show completion result, while display with capf, then clear the overlay
+	;; (when (not (tabnine--response-display-with-capf-p completion))
+	;;   (tabnine--show-completion correlation_id old_prefix completion))
+	))))
 
 (defun tabnine--show-completion (correlation_id old_prefix completion)
   "Show OLD_PREFIX's COMPLETION with validate completion's CORRELATION_ID."
   (when (and (= correlation_id tabnine--correlation-id)
 	     (tabnine--satisfy-display-predicates))
     (tabnine--dbind (:new_prefix
-		     :old_suffix :new_suffix) completion
+		     :old_suffix :new_suffix  :completion_metadata
+		     (:kind :detail :snippet_context (:completion_index))) completion
       (when (s-starts-with? old_prefix  new_prefix)
 	(setq new_prefix (s-chop-prefix old_prefix new_prefix)))
       (save-restriction
@@ -916,6 +944,7 @@ Use TRANSFORM-FN to transform completion if provided."
 		       :new_suffix new_suffix
 		       :old_suffix old_suffix
 		       :correlation_id correlation_id
+		       :completion_index completion_index
 		       :pos (point))))
 	  (tabnine--display-overlay-completion completion-data))))))
 
@@ -927,6 +956,7 @@ Use TRANSFORM-FN to transform completion if provided."
 	(new_suffix (plist-get completion :new_suffix))
 	(new_prefix (plist-get completion :new_prefix))
 	(correlation_id (plist-get completion :correlation_id))
+	(completion_index (plist-get completion :completion_index))
 	(pos (plist-get  completion :pos)))
     (when (s-present-p completion-str)
       (save-excursion
@@ -934,6 +964,7 @@ Use TRANSFORM-FN to transform completion if provided."
 	(let* ((ov (tabnine--get-overlay)))
 	  (overlay-put ov 'tail-length (- (line-end-position) pos))
 	  (overlay-put ov 'correlation_id correlation_id)
+	  (overlay-put ov 'completion_index completion_index)
 	  (overlay-put ov 'old_suffix old_suffix)
 	  (overlay-put ov 'new_suffix new_suffix)
 	  (overlay-put ov 'new_prefix new_prefix)
@@ -954,27 +985,13 @@ Use TRANSFORM-FN to transform completion if provided."
 	   (result (if tabnine--trigger-with-capf
 		       (tabnine-autocomplete)
 		     (with-timeout (0.2)
-		       (tabnine-autocomplete))))
-	   (correlation_id (plist-get result :correlation_id))
-	   (old_prefix (plist-get result :old_prefix))
-	   (completions (plist-get result :results))
-	   (completions (tabnine--filter-completions completions))
-           (completion (if (seq-empty-p completions) nil (seq-elt completions 0))))
-      (if completion
+		       (tabnine-autocomplete)))))
+      (if (tabnine--valid-response-p result)
 	  (progn
-	    (when (and result (= correlation_id tabnine--correlation-id) (> (length completions) 0) )
-	      (setq tabnine--completion-cache result)
-	      (setq tabnine--completion-idx 0))
-	    (let ((new_prefix (plist-get completion :new_prefix)))
-	      (when (s-present? new_prefix)
-		(if (s-starts-with? old_prefix  new_prefix)
-		    (progn
-		      (setq new_prefix (s-chop-prefix old_prefix new_prefix))))
-		(when (not (tabnine--response-display-with-capf-p result))
-		  (tabnine--show-completion correlation_id old_prefix completion))
-		)))
-
-        (when called-interactively
+	    (setq tabnine--completion-cache result)
+	    (setq tabnine--completion-idx 0)
+	    (tabnine--show-completion-1 result))
+	(when called-interactively
 	  (message "No overlay completion is available.")))
       )))
 
@@ -1087,7 +1104,7 @@ If so, update the overlays and continue. COMMAND is the
 command that triggered `post-command-hook'.
 "
   (when (and (eq command 'self-insert-command)
-	     (tabnine--overlay-visible)
+	     (tabnine--overlay-visible-p)
 	     (tabnine--satisfy-display-predicates))
     (let* ((ov tabnine--overlay)
            (completion (overlay-get ov 'completion)))
