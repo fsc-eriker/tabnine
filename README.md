@@ -96,6 +96,24 @@ Add following code to your configuration.
 
 TabNine can automatically balance parentheses, by removing and adding closing parentheses after the cursor. See the examples [here](https://github.com/zxqfl/TabNine/blob/master/HowToWriteAClient.md).
 
+## Default key bindings
+
+### tabnine-mode-map
+
+|  Key    |  action    |
+| ---- | ---- |
+| TAB     |  tabnine-accept-completion    |
+
+### tabnine-completion-map
+
+|  Key    |  action    |
+| ---- | ---- |
+| C-g     | tabnine-clear-overlay |
+| M-f | tabnine-accept-completion-by-word |
+| M-\<return\> | tabnine-accept-completion-by-line |
+| M-[ | tabnine-previous-completion |
+| M-] | tabnine-next-completion |
+
 ## Known Issues
 
 - TabNine's local deep learning completion might be enabled by default. It is very CPU-intensive if your device can't handle it. You can check by typing "TabNine::config" in any buffer (your browser should then automatically open to TabNine's config page) and disable Deep TabNine Local (you will lose local deep learning completion).

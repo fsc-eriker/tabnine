@@ -811,7 +811,14 @@ PROCESS is the process under watch, OUTPUT is the output received."
   "Posn information without overlay.
 To work around posn problems with after-string property.")
 
-(defconst tabnine-completion-map (make-sparse-keymap)
+(defvar tabnine-completion-map
+  (let ((keymap (make-sparse-keymap)))
+    (define-key keymap (kbd "C-g")  #'tabnine-clear-overlay)
+    (define-key keymap (kbd "M-f")  #'tabnine-accept-completion-by-word)
+    (define-key keymap (kbd "M-<return>")  #'tabnine-accept-completion-by-line)
+    (define-key keymap (kbd "M-[")  #'tabnine-previous-completion)
+    (define-key keymap (kbd "M-]")  #'tabnine-next-completion)
+    keymap)
   "Keymap for TabNine completion overlay.")
 
 (defun tabnine--get-overlay ()
@@ -833,11 +840,11 @@ To work around posn problems with after-string property.")
 	 (p-completion (propertize completion 'face 'tabnine-overlay-face)))
     (if (eolp)
         (progn
-          (overlay-put ov 'after-string "") ; make sure posn is correct
-          (setq tabnine--real-posn (cons (point) (posn-at-point)))
-          (put-text-property 0 1 'cursor t p-completion)
-          (overlay-put ov 'display "")
-          (overlay-put ov 'after-string p-completion))
+	  (overlay-put ov 'after-string "") ; make sure posn is correct
+	  (setq tabnine--real-posn (cons (point) (posn-at-point)))
+	  (put-text-property 0 1 'cursor t p-completion)
+	  (overlay-put ov 'display "")
+	  (overlay-put ov 'after-string p-completion))
       (overlay-put ov 'display (substring p-completion 0 1))
       (overlay-put ov 'after-string (substring p-completion 1)))
     (overlay-put ov 'completion completion)
@@ -852,37 +859,37 @@ To work around posn problems with after-string property.")
 
 (defun tabnine-accept-completion (&optional transform-fn)
   "Accept completion.  Return t if there is a completion.
-Use TRANSFORM-FN to transform completion if provided."
+  Use TRANSFORM-FN to transform completion if provided."
   (interactive)
   (when (tabnine--overlay-visible-p)
     (let* ((ov tabnine--overlay)
-           (completion (overlay-get ov 'completion))
+	   (completion (overlay-get ov 'completion))
 	   (start (overlay-get ov 'start))
-           (end (tabnine--overlay-end ov))
-           (new_prefix (overlay-get ov 'new_prefix))
+	   (end (tabnine--overlay-end ov))
+	   (new_prefix (overlay-get ov 'new_prefix))
 	   (new_suffix (overlay-get ov 'new_suffix))
 	   (old_suffix (overlay-get ov 'old_suffix))
-           (t-completion (funcall (or transform-fn #'identity) completion))
+	   (t-completion (funcall (or transform-fn #'identity) completion))
 	   (full-completion (s-equals-p t-completion completion))
 	   (partial-completion (and (s-prefix-p t-completion completion)
 				    (not full-completion))))
       (tabnine-clear-overlay)
       (when (and tabnine-auto-balance full-completion
-		 (s-present? old_suffix) (not (string= old_suffix "\n")))
+		 (s-present? old_suffix) (s-present? (s-trim old_suffix)))
 	(delete-region (point)
 		       (min (+ (point) (length old_suffix))
 			    (point-max))))
       (if (eq major-mode 'vterm-mode)
-          (progn
-            (vterm-delete-region start end)
-            (vterm-insert t-completion)))
+	  (progn
+	    (vterm-delete-region start end)
+	    (vterm-insert t-completion)))
       ;; maybe should not delete this line
       ;; (delete-region start (line-end-position))
       (insert t-completion)
 
       ;; if it is a partial completion
       (if partial-completion
-          (tabnine--set-overlay-text (tabnine--get-overlay) (s-chop-prefix t-completion completion))
+	  (tabnine--set-overlay-text (tabnine--get-overlay) (s-chop-prefix t-completion completion))
 	(when (and (s-present? new_suffix) (s-present? new_prefix))
 	  (when-let* ((left (s-chop-prefix new_prefix completion))
 		      (len (length left)))
@@ -895,7 +902,7 @@ Use TRANSFORM-FN to transform completion if provided."
      (interactive "p")
      (setq n (or n 1))
      (tabnine-accept-completion (lambda (completion)
-                                  (with-temp-buffer
+				  (with-temp-buffer
 				    (insert completion)
 				    (goto-char (point-min))
 				    (funcall ,action n)
@@ -910,12 +917,14 @@ Use TRANSFORM-FN to transform completion if provided."
   (when-let* ((result response)
 	      (completions (plist-get result :results))
 	      (completions (tabnine--filter-completions completions))
-              (completion (if (seq-empty-p completions) nil (seq-elt completions 0)))
+	      (completion (if (seq-empty-p completions) nil (seq-elt completions 0)))
 	      (old_prefix (plist-get result :old_prefix))
 	      (new_prefix (plist-get completion :new_prefix))
 	      (correlation_id (plist-get result :correlation_id)))
     (unless (tabnine--overlay-displaying-result result)
       (when (s-present? new_prefix)
+	(setq tabnine--completion-cache result)
+	(setq tabnine--completion-idx 0)
 	(when (s-starts-with? old_prefix new_prefix)
 	  (setq new_prefix (s-chop-prefix old_prefix new_prefix)))
 	(tabnine--show-completion correlation_id old_prefix completion) ;; alway show completion result, while display with capf, then clear the overlay
@@ -986,11 +995,7 @@ Use TRANSFORM-FN to transform completion if provided."
 		       (tabnine-autocomplete)
 		     (with-timeout (0.2)
 		       (tabnine-autocomplete)))))
-      (if (tabnine--valid-response-p result)
-	  (progn
-	    (setq tabnine--completion-cache result)
-	    (setq tabnine--completion-idx 0)
-	    (tabnine--show-completion-1 result))
+      (unless (tabnine--valid-response-p result)
 	(when called-interactively
 	  (message "No overlay completion is available.")))
       )))
@@ -1001,7 +1006,7 @@ Use TRANSFORM-FN to transform completion if provided."
 
 (defcustom tabnine-disable-predicates '(window-minibuffer-p)
   "A list of predicate functions with no argument to disable TabNine.
-TabNine will not be triggered if any predicate returns t."
+  TabNine will not be triggered if any predicate returns t."
   :type '(repeat function)
   :group 'tabnine)
 
@@ -1009,19 +1014,19 @@ TabNine will not be triggered if any predicate returns t."
 (defcustom tabnine-enable-predicates '(evil-insert-state-p tabnine--buffer-changed
 							   tabnine--completion-triggers-p)
   "A list of predicate functions with no argument to enable TabNine.
-TabNine will be triggered only if all predicates return t."
+  TabNine will be triggered only if all predicates return t."
   :type '(repeat function)
   :group 'tabnine)
 
 (defcustom tabnine-disable-display-predicates '(window-minibuffer-p)
   "A list of predicate functions with no argument to disable TabNine.
-TabNine will not show completions if any predicate returns t."
+  TabNine will not show completions if any predicate returns t."
   :type '(repeat function)
   :group 'tabnine)
 
 (defcustom tabnine-enable-display-predicates nil
   "A list of predicate functions with no argument to enable TabNine.
-TabNine will show completions only if all predicates return t."
+  TabNine will show completions only if all predicates return t."
   :type '(repeat function)
   :group 'tabnine)
 
@@ -1032,10 +1037,10 @@ TabNine will show completions only if all predicates return t."
   "Return t if satisfy all predicates in ENABLE and none in DISABLE."
   `(and (cl-every (lambda (pred)
 		    (if (functionp pred) (funcall pred) t))
-                  ,enable)
+		  ,enable)
         (cl-notany (lambda (pred)
 		     (if (functionp pred) (funcall pred) nil))
-                   ,disable)))
+		   ,disable)))
 
 (defun tabnine--satisfy-trigger-predicates ()
   "Return t if all trigger predicates are satisfied."
@@ -1045,7 +1050,11 @@ TabNine will show completions only if all predicates return t."
   "Return t if all display predicates are satisfied."
   (tabnine--satisfy-predicates tabnine-enable-display-predicates tabnine-disable-display-predicates))
 
-(defvar tabnine-mode-map (make-sparse-keymap)
+(defvar tabnine-mode-map
+  (let ((keymap (make-sparse-keymap)))
+    (define-key keymap (kbd "TAB") #'tabnine-accept-completion)
+    (define-key keymap (kbd "<tab>") #'tabnine-accept-completion)
+    keymap)
   "Keymap for TabNine minor mode.
 Use this for custom bindings in `tabnine-mode'.")
 
@@ -1068,7 +1077,7 @@ Use this for custom bindings in `tabnine-mode'.")
   (when tabnine-mode
     (let ((pos (or (car-safe args) (point))))
       (when (and tabnine--real-posn
-                 (eq pos (car tabnine--real-posn)))
+		 (eq pos (car tabnine--real-posn)))
         (cdr tabnine--real-posn)))))
 
 
@@ -1093,24 +1102,24 @@ Use this for custom bindings in `tabnine-mode'.")
 	(cancel-timer tabnine--post-command-timer)
 	(setq tabnine--trigger-with-capf nil)))
     (setq tabnine--post-command-timer
-          (run-with-idle-timer tabnine-idle-delay
+	  (run-with-idle-timer tabnine-idle-delay
 			       nil
 			       #'tabnine--post-command-debounce
 			       (current-buffer)))))
 
 (defun tabnine--self-insert (command)
   "Handle the case where the char just inserted is the start of the completion.
-If so, update the overlays and continue. COMMAND is the
-command that triggered `post-command-hook'.
-"
+  If so, update the overlays and continue. COMMAND is the
+  command that triggered `post-command-hook'.
+  "
   (when (and (eq command 'self-insert-command)
 	     (tabnine--overlay-visible-p)
 	     (tabnine--satisfy-display-predicates))
     (let* ((ov tabnine--overlay)
-           (completion (overlay-get ov 'completion)))
+	   (completion (overlay-get ov 'completion)))
       ;; The char just inserted is the next char of completion
       (when (and (> (length completion) 1)
-                 (eq last-command-event (elt completion 0)))
+		 (eq last-command-event (elt completion 0)))
         (tabnine--set-overlay-text ov (substring completion 1))))))
 
 (defun tabnine--post-command-debounce (buffer)
@@ -1204,13 +1213,13 @@ command that triggered `post-command-hook'.
   "Replace old suffix with new suffix for CANDIDATE."
   (when tabnine-auto-balance
     (let ((old_suffix (get-text-property 0 'old_suffix candidate))
-          (new_suffix (get-text-property 0 'new_suffix candidate)))
+	  (new_suffix (get-text-property 0 'new_suffix candidate)))
       (delete-region (point)
-                     (min (+ (point) (length old_suffix))
-                          (point-max)))
+		     (min (+ (point) (length old_suffix))
+			  (point-max)))
       (when (stringp new_suffix)
         (save-excursion
-          (insert new_suffix))))))
+	  (insert new_suffix))))))
 
 ;;;###autoload
 (defun tabnine-completion-at-point ()
@@ -1225,7 +1234,7 @@ command that triggered `post-command-hook'.
 	 (ov-correlation-id  (overlay-get ov 'correlation_id))
 	 (correlation_id (plist-get response :correlation_id))
 	 (display-with-overlay (equal ov-correlation-id correlation_id))
-         (candidates  (let* ((candidates (tabnine--get-candidates response)))
+	 (candidates  (let* ((candidates (tabnine--get-candidates response)))
 			(when (tabnine--response-display-with-capf-p response)
 			  candidates)))
 	 (get-candidates (lambda () candidates)))
@@ -1244,8 +1253,8 @@ command that triggered `post-command-hook'.
      (lambda (candidate status)
        "Post-completion function for tabnine."
        (let ((item (cl-find candidate (funcall get-candidates) :test #'string=)))
-         (tabnine--post-completion item)
-         )))))
+	 (tabnine--post-completion item)
+	 )))))
 
 
 ;; Advices
