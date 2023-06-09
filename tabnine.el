@@ -234,6 +234,9 @@ Resets every time successful completion is returned.")
 (defvar-local tabnine--trigger-with-capf nil
   "Completion trigger with capf for TabNine.")
 
+(defvar-local tabnine--trigger-point nil
+  "Completion trigger point position for TabNine.")
+
 (defvar tabnine--post-command-timer nil)
 
 (defvar tabnine--mutex (make-mutex "tabnine")
@@ -299,24 +302,25 @@ Resets every time successful completion is returned.")
   "Create request body for method METHOD and parameters PARAMS."
   (cond
    ((eq method 'autocomplete)
-    (let* ((buffer-min 1)
+    (let* ((pt (point))
+	   (buffer-min 1)
            (buffer-max (1+ (buffer-size)))
            (before-point
-            (max (point-min) (- (point) tabnine-context-char-limit-before)))
+            (max (point-min) (- pt tabnine-context-char-limit-before)))
            (after-point
-            (min (point-max) (+ (point) tabnine-context-char-limit-after)))
-	   (offset (max 0 (1- (point))))
+            (min (point-max) (+ pt tabnine-context-char-limit-after)))
+	   (offset (max 0 (1- pt)))
 	   (line (- (line-number-at-pos) 1))
-	   (character (max 0 (- (point) (line-beginning-position))))
+	   (character (max 0 (- pt (line-beginning-position))))
 	   (indentation_size (tabnine--infer-indentation-offset)))
-
+      (setq tabnine--trigger-point pt)
       (list
        :version tabnine--api-version
        :request
        (list :Autocomplete
              (list
-	      :before (buffer-substring-no-properties before-point (point))
-	      :after (buffer-substring-no-properties (point) after-point)
+	      :before (buffer-substring-no-properties before-point pt)
+	      :after (buffer-substring-no-properties pt after-point)
 	      :filename (or (buffer-file-name) nil)
 	      :region_includes_beginning (if (= before-point buffer-min)
                                              t json-false)
@@ -541,7 +545,7 @@ Resets every time successful completion is returned.")
 
 (defun tabnine-getidentifierregex ()
   "Get identifier regex from TabNine server."
-  (tabnine--request 'identifierregex))
+  (tabnine--request 'getidentifierregex))
 
 (defun tabnine-configuration ()
   "Open TabNine Hub page."
@@ -679,7 +683,8 @@ PROCESS is the process under watch, OUTPUT is the output received."
 	(setq tabnine--response result)
 	(when (and result (tabnine--valid-response-p result))
           (setq tabnine--completion-cache-result result)
-	  (tabnine--show-completion-1 result))
+	  (when (equal (point) tabnine--trigger-point)
+	    (tabnine--show-completion-1 result)))
 	))))
 
 ;;
@@ -1230,10 +1235,6 @@ Use this for custom bindings in `tabnine-mode'.")
 	 (start        (or (car bounds) pt))
 	 (end          (or (cdr bounds) pt))
 	 (response tabnine--completion-cache-result)
-	 (ov (tabnine--get-overlay))
-	 (ov-correlation-id  (overlay-get ov 'correlation_id))
-	 (correlation_id (plist-get response :correlation_id))
-	 (display-with-overlay (equal ov-correlation-id correlation_id))
 	 (candidates  (let* ((candidates (tabnine--get-candidates response)))
 			(when (tabnine--response-display-with-capf-p response)
 			  candidates)))
