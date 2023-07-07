@@ -1,4 +1,4 @@
-;;; tabnine.el --- An unofficial TabNine package for Emacs ;; -*- lexical-binding: t -*-
+;;; tabnine.el --- An unofficial TabNine package ;; -*- lexical-binding: t -*-
 ;;
 ;; Copyright (c) 2023 Tommy Xiang, John Gong, Aaron Ji
 ;;
@@ -8,7 +8,7 @@
 ;; Keywords: convenience
 ;; Version: 0.0.1
 ;; URL: https://github.com/shuxiao9058/tabnine/
-;; Package-Requires: ((emacs "25") (cl-lib "0.5") (dash "2.16.0") (s "1.12.0") (editorconfig "0.9.1"))
+;; Package-Requires: ((emacs "26.1") (dash "2.16.0") (s "1.12.0") (editorconfig "0.9.1"))
 ;;
 ;; Permission is hereby granted, free of charge, to any person obtaining a copy
 ;; of this software and associated documentation files (the "Software"), to deal
@@ -28,7 +28,7 @@
 ;; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 ;; SOFTWARE.
 ;;
-;; Commentary:
+;;; Commentary:
 ;;
 ;; Description:
 ;;
@@ -45,6 +45,7 @@
 ;; See M-x customize-group RET tabnine RET for customizations.
 ;;
 ;;
+
 
 ;;; Code:
 
@@ -165,7 +166,7 @@ Any successful completion will reset the consecutive count."
   :type 'string)
 
 (defcustom tabnine-install-static-binary (file-exists-p "/etc/nixos/hardware-configuration.nix")
-  "Whether to install the musl-linked static binary instead of the standard glibc-linked dynamic binary.
+  "Whether install the musl-linked static binary.
 Only useful on GNU/Linux.  Automatically set if NixOS is detected."
   :group 'tabnine
   :type 'boolean)
@@ -176,7 +177,7 @@ Only useful on GNU/Linux.  Automatically set if NixOS is detected."
   :type 'string)
 
 (defcustom tabnine-debug-file-path nil
-  "If non-nil, will log debug messages to tabnine-debug-file-path named file."
+  "If non-nil, will log debug messages to TABNINE-DEBUG-FILE-PATH named file."
   :group 'tabnine
   :type 'string)
 
@@ -345,8 +346,7 @@ Resets every time successful completion is returned.")
      :request
      (list :GetIdentifierRegex
            (list
-            :filename (or (buffer-file-name) nil)
-            ))))
+            :filename (or (buffer-file-name) nil)))))
    ;; Query Capabilities
    ((eq method 'capabilities)
     (list
@@ -419,8 +419,7 @@ Resets every time successful completion is returned.")
           (eq system-type 'windows-nt)
           (eq system-type 'cygwin))
       "TabNine.exe"
-    "TabNine"
-    ))
+    "TabNine"))
 
 (defun tabnine--executable-path ()
   "Find and return the path of the latest TabNine binary for the current system."
@@ -486,8 +485,7 @@ Resets every time successful completion is returned.")
 	   :sentinel #'tabnine--process-sentinel
 	   :noquery t
 	   :stderr (get-buffer-create
-                    (format "*%s stderr*" tabnine--process-name))
-	   )))
+                    (format "*%s stderr*" tabnine--process-name)))))
   ;; hook setup
   (message "TabNine server started.")
   (tabnine-capabilities)
@@ -608,8 +606,7 @@ PROCESS is the process under watch, EVENT is the event occurred."
   (when response
     (let* ((results (plist-get response :results))
            (first-completion (if (seq-empty-p results) nil (seq-elt results 0))))
-      (and first-completion (s-present? (plist-get first-completion :new_prefix)))
-      )))
+      (and first-completion (s-present? (plist-get first-completion :new_prefix))))))
 
 (defun tabnine--invalid-completion-p(completion)
   "Check if the COMPLETION is valid, some completions is stupid."
@@ -684,8 +681,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
 	(when (and result (tabnine--valid-response-p result))
           (setq tabnine--completion-cache-result result)
 	  (when (equal (point) tabnine--trigger-point)
-	    (tabnine--show-completion-1 result)))
-	))))
+	    (tabnine--show-completion-1 result)))))))
 
 ;;
 ;; Interactive functions
@@ -863,8 +859,8 @@ To work around posn problems with after-string property.")
     (setq tabnine--real-posn nil)))
 
 (defun tabnine-accept-completion (&optional transform-fn)
-  "Accept completion.  Return t if there is a completion.
-  Use TRANSFORM-FN to transform completion if provided."
+  "Accept completion. Return t if there is a completion.
+Use TRANSFORM-FN to transform completion if provided."
   (interactive)
   (when (tabnine--overlay-visible-p)
     (let* ((ov tabnine--overlay)
@@ -1002,8 +998,7 @@ To work around posn problems with after-string property.")
 		       (tabnine-autocomplete)))))
       (unless (tabnine--valid-response-p result)
 	(when called-interactively
-	  (message "No overlay completion is available.")))
-      )))
+	  (message "No overlay completion is available."))))))
 
 ;;
 ;; minor mode
@@ -1011,7 +1006,7 @@ To work around posn problems with after-string property.")
 
 (defcustom tabnine-disable-predicates '(window-minibuffer-p)
   "A list of predicate functions with no argument to disable TabNine.
-  TabNine will not be triggered if any predicate returns t."
+TabNine will not be triggered if any predicate returns t."
   :type '(repeat function)
   :group 'tabnine)
 
@@ -1019,19 +1014,19 @@ To work around posn problems with after-string property.")
 (defcustom tabnine-enable-predicates '(evil-insert-state-p tabnine--buffer-changed
 							   tabnine--completion-triggers-p)
   "A list of predicate functions with no argument to enable TabNine.
-  TabNine will be triggered only if all predicates return t."
+TabNine will be triggered only if all predicates return t."
   :type '(repeat function)
   :group 'tabnine)
 
 (defcustom tabnine-disable-display-predicates '(window-minibuffer-p)
   "A list of predicate functions with no argument to disable TabNine.
-  TabNine will not show completions if any predicate returns t."
+TabNine will not show completions if any predicate returns t."
   :type '(repeat function)
   :group 'tabnine)
 
 (defcustom tabnine-enable-display-predicates nil
   "A list of predicate functions with no argument to enable TabNine.
-  TabNine will show completions only if all predicates return t."
+TabNine will show completions only if all predicates return t."
   :type '(repeat function)
   :group 'tabnine)
 
@@ -1078,7 +1073,7 @@ Use this for custom bindings in `tabnine-mode'.")
     (remove-hook 'before-change-functions #'tabnine--on-change 'local)))
 
 (defun tabnine--posn-advice (&rest args)
-  "Remap posn if necessary."
+  "Remap posn if in tabnine-mode."
   (when tabnine-mode
     (let ((pos (or (car-safe args) (point))))
       (when (and tabnine--real-posn
@@ -1091,6 +1086,7 @@ Use this for custom bindings in `tabnine-mode'.")
   tabnine-mode tabnine-mode)
 
 (defun tabnine--on-change (&reset _args)
+  "Do while buffer changes."
   (cl-incf tabnine--correlation-id))
 
 (defun tabnine--post-command ()
@@ -1114,9 +1110,8 @@ Use this for custom bindings in `tabnine-mode'.")
 
 (defun tabnine--self-insert (command)
   "Handle the case where the char just inserted is the start of the completion.
-  If so, update the overlays and continue. COMMAND is the
-  command that triggered `post-command-hook'.
-  "
+If so, update the overlays and continue. COMMAND is the
+command that triggered `post-command-hook'."
   (when (and (eq command 'self-insert-command)
 	     (tabnine--overlay-visible-p)
 	     (tabnine--satisfy-display-predicates))
@@ -1254,8 +1249,7 @@ Use this for custom bindings in `tabnine-mode'.")
      (lambda (candidate status)
        "Post-completion function for tabnine."
        (let ((item (cl-find candidate (funcall get-candidates) :test #'string=)))
-	 (tabnine--post-completion item)
-	 )))))
+	 (tabnine--post-completion item))))))
 
 
 ;; Advices
@@ -1266,13 +1260,11 @@ Use this for custom bindings in `tabnine-mode'.")
 ;; Hooks
 ;;
 
-(defun ~advice/tabnine-prefetch (orig-func &rest args)
+(defun tabnine--prefetch-advice (orig-func &rest args)
   (when (and tabnine-mode (buffer-file-name))
     (tabnine-prefetch)))
 
-(eval-after-load 'tabnine
-  (advice-add 'switch-to-buffer :after #'~advice/tabnine-prefetch))
-
+(advice-add 'switch-to-buffer :after #'tabnine--prefetch-advice)
 
 (provide 'tabnine)
 

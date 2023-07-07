@@ -66,7 +66,6 @@ Add following code to your configuration.
 
 ```emacs-lisp
 (use-package tabnine
-  :after (on)
   :commands (tabnine-start-process)
   :hook (prog-mode . tabnine-mode)
   :straight (tabnine :package "tabnine"
@@ -76,10 +75,10 @@ Add following code to your configuration.
   :custom
   (tabnine-wait 1)
   (tabnine-minimum-prefix-length 0)
-  :hook ((on-first-input . tabnine-start-process)
-	 (kill-emacs . tabnine-kill-process))
+  :hook (kill-emacs . tabnine-kill-process)
   :config
   (add-to-list 'completion-at-point-functions #'tabnine-completion-at-point)
+  (tabnine-start-process)
   :bind
   (:map tabnine-mode-map
 	("TAB" . tabnine-accept-completion)
@@ -95,6 +94,22 @@ Add following code to your configuration.
 ### Auto-balance parentheses
 
 TabNine can automatically balance parentheses, by removing and adding closing parentheses after the cursor. See the examples [here](https://github.com/zxqfl/TabNine/blob/master/HowToWriteAClient.md).
+
+### ICON displayed error
+
+If candidate icons of tabnine displayed unnormally [capf icon error](https://github.com/shuxiao9058/tabnine/issues/1), try set `kind-icon-mapping` for tabnine:
+
+- With all-the-icons
+
+```emacs-lisp
+(add-to-list 'kind-icon-mapping '(tabnine "ai" :icon "cloud" :face shadow) t)
+```
+
+- With all-the-icons-nerd-fonts
+
+```emacs-lisp
+(add-to-list 'kind-icon-mapping `(tabnine ,(nerd-icons-codicon "nf-cod-hubot") :face font-lock-warning-face) t)
+```
 
 ## Default key bindings
 
