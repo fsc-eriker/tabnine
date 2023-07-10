@@ -117,7 +117,8 @@
   :prefix "tabnine-")
 
 (defcustom tabnine-idle-delay 0.1
-  "Time in seconds to wait before starting completion.  Complete immediately if set to 0."
+  "Time in seconds to wait before starting completion.
+Complete immediately if set to 0."
   :type 'float
   :group 'tabnine)
 
@@ -244,14 +245,15 @@ Resets every time successful completion is returned.")
   "Global mutex for TabNine completion.")
 
 (defun tabnine--buffer-changed ()
-  "Return non-nil if buffer has changed since last time `tabnine-complete' has been invoked."
+  "Return non-nil if buffer has changed since \"tabnine-complete\" been invoked."
   (not (= tabnine--last-correlation-id tabnine--correlation-id)))
 
 (defmacro tabnine--json-serialize (params)
   "Return PARAMS JSON serialized result."
+  (declare (indent 2))
   (if (progn
-        (require 'json)
-        (fboundp 'json-serialize))
+	(require 'json)
+	(fboundp 'json-serialize))
       `(json-serialize ,params
 		       :null-object nil
 		       :false-object :json-false)
@@ -261,6 +263,7 @@ Resets every time successful completion is returned.")
 
 (defmacro tabnine--read-json (str)
   "Read JSON string STR.  and return the decoded object."
+  (declare (indent 2))
   (if (progn
         (require 'json)
         (fboundp 'json-parse-string))
@@ -284,15 +287,15 @@ Resets every time successful completion is returned.")
        (process-live-p tabnine--process)))
 
 (defmacro tabnine--send-request (request)
-  "Send a REQUEST to the TabNine process. REQUEST needs to be JSON-serializable object."
+  "Send a REQUEST to the TabNine process.
+REQUEST should be JSON-serializable object."
   `(progn
      (unless (tabnine--process-alivep)
        (tabnine-start-process))
 
      (when tabnine--process
        (let ((encoded (concat
-		       (tabnine--json-serialize request)
-		       "\n")))
+		       (tabnine--json-serialize ,request) "\n")))
 	 (setq tabnine--response nil)
 	 ;; (setq tabnine--completion-cache-result nil)
 	 (tabnine--log-to-debug-file "Write to TabNine process" encoded)
@@ -561,7 +564,7 @@ Resets every time successful completion is returned.")
 (defun tabnine--log-to-debug-file(prefix text)
   "Log to TabNine debug buffer, PREFIX is log prefix and TEXT is the log body."
   (when tabnine-debug-file-path
-    (let ((str (format "====== %s START %s ====== \n%s ====== END ======\n" (format-time-string "%Y-%m-%d %H:%M:%S" (current-time)) prefix text))
+    (let ((str (format "====== %s START %s ====== \n%s ====== END ======\n" (format-time-string "%F %T" (current-time)) prefix text))
 	  (message-log-max nil))
       (with-temp-buffer
 	(insert str)
@@ -617,23 +620,18 @@ PROCESS is the process under watch, EVENT is the event occurred."
 
 (defun tabnine--completion-capf-p(completion)
   "Check COMPLETION is capf result."
-  (tabnine--dbind (:new_prefix :completion_metadata
-			       (:kind :completion_kind)) completion
+  (tabnine--dbind (:new_prefix) completion
     (let ((line (length (s-split "\n" (s-trim new_prefix)))))
-      (<= line 2)
-      ;; (not (<= line 2))
-      ;; (and completion_kind (not (and ;; (equal completion_kind "Snippet")
-      ;; 				 (> line 1) )))
-      )))
+      (<= line 2))))
 
 (defun tabnine--response-display-with-capf-p(response)
   "Test RESPONSE whether display with overlay."
   (when response
     (let* ((display-with-overlay)
 	   (results (plist-get response :results)))
-      (mapcar (lambda(x)
-	    	(unless (tabnine--completion-capf-p x)
-		  (setq display-with-overlay t))) results)
+      (mapc (lambda(x)
+	      (unless (tabnine--completion-capf-p x)
+		(setq display-with-overlay t))) results)
       (when (not tabnine--trigger-with-capf)
 	(setq display-with-overlay t))
       (not display-with-overlay))))
@@ -658,7 +656,7 @@ PROCESS is the process under watch, EVENT is the event occurred."
 					  completions)))
       completions)))
 
-(defun tabnine--process-filter (process output)
+(defun tabnine--process-filter (_ output)
   "Filter for TabNine server process.
 PROCESS is the process under watch, OUTPUT is the output received."
   (tabnine--log-to-debug-file "Read from TabNine process" output)
@@ -721,16 +719,16 @@ PROCESS is the process under watch, OUTPUT is the output received."
         (message "Installing at %s. Downloading %s ..." target-path url)
         (make-directory target-directory t)
         (url-copy-file url bundle-path t)
-        (condition-case ex
+        (condition-case nil
             (let ((default-directory target-directory))
 	      (if (or (eq system-type 'ms-dos)
 		      (eq system-type 'windows-nt)
 		      (eq system-type 'cygwin))
-                  (shell-command (format "tar -xf %s" (expand-file-name bundle-path)))
+                  (shell-command (format "tar -xf %s" (shell-quote-argument (expand-file-name bundle-path))))
                 (shell-command (format "unzip -o %s -d %s"
-				       (expand-file-name bundle-path)
-				       (expand-file-name target-directory)))))
-          ('error
+				       (shell-quote-argument (expand-file-name bundle-path))
+				       (shell-quote-argument (expand-file-name target-directory))))))
+          (error
            (error "Unable to unzip automatically. Please go to [%s] and unzip the content of [%s] into [%s/]"
                   (expand-file-name version-directory)
                   (file-name-nondirectory bundle-path)
@@ -776,7 +774,6 @@ PROCESS is the process under watch, OUTPUT is the output received."
   "Return t while `tabnine--overlay' is displaying the RESULT."
   (let* ((ov (tabnine--get-overlay))
 	 (ov-correlation-id (overlay-get ov 'correlation_id))
-	 (ov-completion-index (overlay-get ov 'completion_index))
 	 (correlation_id (plist-get result :correlation_id)))
     (and (equal ov-correlation-id correlation_id)
 	 (tabnine--overlay-visible-p))))
@@ -837,8 +834,7 @@ To work around posn problems with after-string property.")
 (defun tabnine--set-overlay-text (ov completion)
   "Set overlay OV with COMPLETION."
   (move-overlay ov (point) (line-end-position))
-  (let* ((tail (buffer-substring (tabnine--overlay-end ov) (line-end-position)))
-	 (p-completion (propertize completion 'face 'tabnine-overlay-face)))
+  (let* ((p-completion (propertize completion 'face 'tabnine-overlay-face)))
     (if (eolp)
         (progn
 	  (overlay-put ov 'after-string "") ; make sure posn is correct
@@ -939,13 +935,12 @@ Use TRANSFORM-FN to transform completion if provided."
 	     (tabnine--satisfy-display-predicates))
     (tabnine--dbind (:new_prefix
 		     :old_suffix :new_suffix  :completion_metadata
-		     (:kind :detail :snippet_context (:completion_index))) completion
+		     (:snippet_context (:completion_index))) completion
       (when (s-starts-with? old_prefix  new_prefix)
 	(setq new_prefix (s-chop-prefix old_prefix new_prefix)))
       (save-restriction
 	(widen)
-	(let* ((ov (tabnine--get-overlay))
-	       (completion-str (if (s-present? new_suffix)
+	(let* ((completion-str (if (s-present? new_suffix)
 				   (concat new_prefix new_suffix)
 				 new_prefix))
 	       (completion-data
@@ -991,11 +986,10 @@ Use TRANSFORM-FN to transform completion if provided."
   (setq tabnine--trigger-with-capf (if arg t))
 
   (let ((called-interactively (called-interactively-p 'interactive)))
-    (let* ((cached-result tabnine--completion-cache-result)
-	   (result (if tabnine--trigger-with-capf
-		       (tabnine-autocomplete)
-		     (with-timeout (0.2)
-		       (tabnine-autocomplete)))))
+    (let ((result (if tabnine--trigger-with-capf
+		      (tabnine-autocomplete)
+		    (with-timeout (0.2)
+		      (tabnine-autocomplete)))))
       (unless (tabnine--valid-response-p result)
 	(when called-interactively
 	  (message "No overlay completion is available."))))))
@@ -1031,7 +1025,9 @@ TabNine will show completions only if all predicates return t."
   :group 'tabnine)
 
 (defcustom tabnine-completion-triggers " .(){}[],:'\",=<>/\\+-|&*%=$#@!\n\r\t\v"
-  "Completion triggers.")
+  "Completion triggers."
+  :type 'string
+  :group 'tabnine)
 
 (defmacro tabnine--satisfy-predicates (enable disable)
   "Return t if satisfy all predicates in ENABLE and none in DISABLE."
@@ -1073,7 +1069,7 @@ Use this for custom bindings in `tabnine-mode'.")
     (remove-hook 'before-change-functions #'tabnine--on-change 'local)))
 
 (defun tabnine--posn-advice (&rest args)
-  "Remap posn if in tabnine-mode."
+  "Remap posn if in \"tabnine-mode\". Car of ARGS is point invoked."
   (when tabnine-mode
     (let ((pos (or (car-safe args) (point))))
       (when (and tabnine--real-posn
@@ -1085,8 +1081,9 @@ Use this for custom bindings in `tabnine-mode'.")
 (define-global-minor-mode global-tabnine-mode
   tabnine-mode tabnine-mode)
 
-(defun tabnine--on-change (&reset _args)
-  "Do while buffer changes."
+(defun tabnine--on-change (&reset _)
+  "Do while buffer changed.
+The &RESET of ARGS is not used."
   (cl-incf tabnine--correlation-id))
 
 (defun tabnine--post-command ()
@@ -1246,7 +1243,7 @@ command that triggered `post-command-hook'."
        (tabnine-clear-overlay)
        (concat "  "(get-text-property 0 'annotation candidate)))
      :exit-function
-     (lambda (candidate status)
+     (lambda (candidate _)
        "Post-completion function for tabnine."
        (let ((item (cl-find candidate (funcall get-candidates) :test #'string=)))
 	 (tabnine--post-completion item))))))
@@ -1260,7 +1257,8 @@ command that triggered `post-command-hook'."
 ;; Hooks
 ;;
 
-(defun tabnine--prefetch-advice (orig-func &rest args)
+(defun tabnine--prefetch-advice (_ &rest _)
+  "Invoke prefetch operation while switch buffer."
   (when (and tabnine-mode (buffer-file-name))
     (tabnine-prefetch)))
 

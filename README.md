@@ -2,6 +2,10 @@
 
 An unofficial TabNine package for Emacs.
 
+# Screen Recording
+
+![screenshot-3.gif](./assets/screenshot-3.gif)
+
 ## Screenshot
 
 - Snippets displayed  with overlay,  screenshot:
@@ -11,6 +15,8 @@ An unofficial TabNine package for Emacs.
 - Classic completions displayed with `completion-at-point-functions`  screenshot (corfu)
 
  ![screenshot-2.png](./assets/screenshot-2.png)
+
+
 
 ## Installation
 
