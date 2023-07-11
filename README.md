@@ -54,18 +54,16 @@ Add following code to your configuration.
 4. Recommend shortcut binding
 
 ```emacs
-(define-key tabnine-completion-map (kbd "M-f") #'tabnine-accept-completion-by-word)
-(define-key tabnine-completion-map (kbd "M-<return>") #'tabnine-accept-completion-by-line)
-
 (define-key tabnine-completion-map (kbd "TAB") #'tabnine-accept-completion)
 (define-key tabnine-completion-map (kbd "<tab>") #'tabnine-accept-completion)
+
+(define-key tabnine-completion-map (kbd "M-f") #'tabnine-accept-completion-by-word)
+(define-key tabnine-completion-map (kbd "M-<return>") #'tabnine-accept-completion-by-line)
 
 (define-key tabnine-completion-map (kbd "C-g") #'tabnine-clear-overlay)
 (define-key tabnine-completion-map (kbd "M-[") #'tabnine-next-completion)
 (define-key tabnine-completion-map (kbd "M-]") #'tabnine-previous-completion)
 
-(define-key tabnine-mode-map (kbd "TAB") #'tabnine-accept-completion)
-(define-key tabnine-mode-map (kbd "<tab>") #'tabnine-accept-completion)
 ```
 
 5. Example of configure with `use-package`.
@@ -86,10 +84,9 @@ Add following code to your configuration.
   (add-to-list 'completion-at-point-functions #'tabnine-completion-at-point)
   (tabnine-start-process)
   :bind
-  (:map tabnine-mode-map
-	("TAB" . tabnine-accept-completion)
-	("<tab>" . tabnine-accept-completion))
   (:map  tabnine-completion-map
+	 ("<tab>" . tabnine-accept-completion)
+	 ("TAB" . tabnine-accept-completion)
 	 ("M-f" . tabnine-accept-completion-by-word)
 	 ("M-<return>" . tabnine-accept-completion-by-line)
 	 ("C-g" . tabnine-clear-overlay)
@@ -121,14 +118,13 @@ If candidate icons of tabnine displayed unnormally [capf icon error](https://git
 
 ### tabnine-mode-map
 
-|  Key    |  action    |
-| ---- | ---- |
-| TAB     |  tabnine-accept-completion    |
+None.
 
 ### tabnine-completion-map
 
 |  Key    |  action    |
 | ---- | ---- |
+| TAB     |  tabnine-accept-completion    |
 | C-g     | tabnine-clear-overlay |
 | M-f | tabnine-accept-completion-by-word |
 | M-\<return\> | tabnine-accept-completion-by-line |
