@@ -8,7 +8,7 @@
 ;; Keywords: convenience
 ;; Version: 0.0.1
 ;; URL: https://github.com/shuxiao9058/tabnine/
-;; Package-Requires: ((emacs "26.1") (dash "2.16.0") (s "1.12.0") (editorconfig "0.9.1"))
+;; Package-Requires: ((emacs "26.1") (dash "2.16.0") (s "1.12.0") (editorconfig "0.9.1") (vterm "0.0.2"))
 ;;
 ;; Permission is hereby granted, free of charge, to any person obtaining a copy
 ;; of this software and associated documentation files (the "Software"), to deal
@@ -878,6 +878,9 @@ Use TRANSFORM-FN to transform completion if provided."
 	(delete-region (point)
 		       (min (+ (point) (length old_suffix))
 			    (point-max))))
+      (let ((vterm-always-compile-module t))
+	(cl-eval-when (compile)
+	  (require 'vterm)))
       (if (eq major-mode 'vterm-mode)
 	  (progn
 	    (vterm-delete-region start end)
@@ -1057,15 +1060,17 @@ Use this for custom bindings in `tabnine-mode'.")
 (define-minor-mode tabnine-mode
   "Minor mode for TabNine."
   :init-value nil
-  :lighter " TabNine"
+  :lighter " ⌬"
   (tabnine-clear-overlay)
   (advice-add 'posn-at-point :before-until #'tabnine--posn-advice)
   (if tabnine-mode
       (progn
         (add-hook 'post-command-hook #'tabnine--post-command nil 'local)
-        (add-hook 'before-change-functions #'tabnine--on-change nil 'local))
+        (add-hook 'before-change-functions #'tabnine--on-change nil 'local)
+	(advice-add 'switch-to-buffer :after #'tabnine--prefetch-advice))
     (remove-hook 'post-command-hook #'tabnine--post-command 'local)
-    (remove-hook 'before-change-functions #'tabnine--on-change 'local)))
+    (remove-hook 'before-change-functions #'tabnine--on-change 'local)
+    (advice-remove 'switch-to-buffer #'tabnine--prefetch-advice)))
 
 (defun tabnine--posn-advice (&rest args)
   "Remap posn if in \"tabnine-mode\". Car of ARGS is point invoked."
@@ -1080,9 +1085,13 @@ Use this for custom bindings in `tabnine-mode'.")
 (define-global-minor-mode global-tabnine-mode
   tabnine-mode tabnine-mode)
 
-(defun tabnine--on-change (&reset _)
-  "Do while buffer changed.
-The &RESET of ARGS is not used."
+(defun tabnine--prefetch-advice (_ &rest _)
+  "Invoke prefetch operation while switch buffer."
+  (when (buffer-file-name)
+    (tabnine-prefetch)))
+
+(defun tabnine--on-change (&rest _args)
+  "Do while buffer changed, _ARGS is not used."
   (cl-incf tabnine--correlation-id))
 
 (defun tabnine--post-command ()
@@ -1251,17 +1260,6 @@ command that triggered `post-command-hook'."
 ;; Advices
 ;;
 
-
-;;
-;; Hooks
-;;
-
-(defun tabnine--prefetch-advice (_ &rest _)
-  "Invoke prefetch operation while switch buffer."
-  (when (and tabnine-mode (buffer-file-name))
-    (tabnine-prefetch)))
-
-(advice-add 'switch-to-buffer :after #'tabnine--prefetch-advice)
 
 (provide 'tabnine)
 
