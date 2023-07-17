@@ -113,19 +113,34 @@
 (defgroup tabnine nil
   "Options for tabnine."
   :link '(url-link :tag "Github" "https://github.com/shuxiao9058/tabnine")
-  :group 'company
-  :prefix "tabnine-")
+  :prefix "tabnine-"
+  :group 'tabnine)
 
 (defcustom tabnine-idle-delay 0.1
   "Time in seconds to wait before starting completion.
 Complete immediately if set to 0."
-  :type 'float
-  :group 'tabnine)
+  :group 'tabnine
+  :type 'float)
 
 (defcustom tabnine-max-num-results 5
   "Maximum number of results to show."
   :group 'tabnine
   :type 'integer)
+
+(defcustom tabnine-max-wait-count-while-nil 5
+  "Maximum number to wait while no response got."
+  :group 'tabnine
+  :type 'integer)
+
+(defcustom tabnine-wait-disabled-method '(prefetch)
+  "List of wait disabled method."
+  :group 'tabnine
+  :type '(repeat symbol))
+
+(defcustom tabnine-wait-interval-while-nil 0.1
+  "Time in seconds to wait before retry while no response got."
+  :group 'tabnine
+  :type 'float)
 
 (defcustom tabnine-context-char-limit-before 100000
   "The number of chars before point to send for completion."
@@ -141,7 +156,6 @@ Complete immediately if set to 0."
   "The minimum prefix length for idle completion."
   :group 'tabnine
   :type 'integer)
-
 
 (defcustom tabnine-clear-overlay-ignore-commands nil
   "List of commands that should not clear the overlay when called."
@@ -190,8 +204,8 @@ Only useful on GNU/Linux.  Automatically set if NixOS is detected."
 (defcustom tabnine-network-proxy nil
   "Network proxy to use for TabNine. Nil means no proxy.
 e.g.: http://user:password@127.0.0.1:7890"
-  :type 'string
-  :group 'tabnine)
+  :group 'tabnine
+  :type 'string)
 
 ;;
 ;; Faces
@@ -323,9 +337,9 @@ REQUEST should be JSON-serializable object."
        :request
        (list :Autocomplete
              (list
+	      :filename (or (buffer-file-name) nil)
 	      :before (buffer-substring-no-properties before-point pt)
 	      :after (buffer-substring-no-properties pt after-point)
-	      :filename (or (buffer-file-name) nil)
 	      :region_includes_beginning (if (= before-point buffer-min)
                                              t json-false)
 	      :region_includes_end (if (= after-point buffer-max)
@@ -335,7 +349,8 @@ REQUEST should be JSON-serializable object."
 	      :line line
 	      :character character
 	      :indentation_size indentation_size
-	      :correlation_id tabnine--correlation-id)))))
+	      :correlation_id tabnine--correlation-id
+	      :cached_only json-false)))))
    ((eq method 'prefetch)
     (list
      :version tabnine--api-version
@@ -514,8 +529,14 @@ REQUEST should be JSON-serializable object."
   "Send TabNine `METHOD` request and get response in json."
   (declare (indent 2))
   `(with-mutex tabnine--mutex
-     (let ((request (tabnine--make-request ,method)))
+     (let ((num 0)
+	   (max-retry (or tabnine-max-wait-count-while-nil 5))
+	   (request (tabnine--make-request ,method))
+	   (wait (not (memq ,method tabnine-wait-disabled-method))))
        (tabnine--send-request request)
+       (while (and wait (< num max-retry) (not tabnine--response))
+	 (setq num (1+ num))
+	 (sleep-for (or tabnine-wait-interval-while-nil 0.2)))
        tabnine--response)))
 
 (defun tabnine-autocomplete ()
@@ -1255,10 +1276,6 @@ command that triggered `post-command-hook'."
        "Post-completion function for tabnine."
        (let ((item (cl-find candidate (funcall get-candidates) :test #'string=)))
 	 (tabnine--post-completion item))))))
-
-
-;; Advices
-;;
 
 
 (provide 'tabnine)
