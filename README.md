@@ -1,6 +1,6 @@
 # tabnine
 
-An unofficial TabNine package for Emacs.
+An unofficial TabNine(with TabNine Chat supported) package for Emacs.
 
 # Screen Recording
 
@@ -8,21 +8,20 @@ An unofficial TabNine package for Emacs.
 
 ## Screenshot
 
-- Snippets displayed  with overlay,  screenshot:
+- Snippets displayed with overlay, screenshot:
 
- ![screenshot-1.png](./assets/screenshot-1.png)
+![screenshot-1.png](./assets/screenshot-1.png)
 
-- Classic completions displayed with `completion-at-point-functions`  screenshot (corfu)
+- Classic completions displayed with `completion-at-point-functions` screenshot (corfu)
 
- ![screenshot-2.png](./assets/screenshot-2.png)
-
-
+![screenshot-2.png](./assets/screenshot-2.png)
 
 ## Installation
 
 ### straight-use-package
 
 Add following code to your configuration.
+
 ```emacs
 (use-package tabnine
   :hook (prog-mode . tabnine-mode)
@@ -33,6 +32,7 @@ Add following code to your configuration.
 ```
 
 ### manully
+
 1. Install `tabnine`.
 
    Clone or download this repository.
@@ -45,6 +45,7 @@ Add following code to your configuration.
    ```
 
 2. Enable `tabnine-mode` in `prog-mode`.
+
    ```emacs
    (add-to-list 'prog-mode-hook #'tabnine-mode)
    ```
@@ -114,6 +115,18 @@ If candidate icons of tabnine displayed unnormally [capf icon error](https://git
 (add-to-list 'kind-icon-mapping `(tabnine ,(nerd-icons-codicon "nf-cod-hubot") :face font-lock-warning-face) t)
 ```
 
+## TabNine Chat
+
+| Command                             | Note                                          |
+| ----------------------------------- | --------------------------------------------- |
+| tabnine-chat-explain-code           | Explain the selected code                     |
+| tabnine-chat-generate-test-for-code | Write tests for the selected code             |
+| tabnine-chat-document-code          | Add documentation for the selected code       |
+| tabnine-chat-fix-code               | Find errors in the selected code and fix them |
+|                                     |                                               |
+
+
+
 ## Default key bindings
 
 ### tabnine-mode-map
@@ -122,14 +135,14 @@ None.
 
 ### tabnine-completion-map
 
-|  Key    |  action    |
-| ---- | ---- |
-| TAB     |  tabnine-accept-completion    |
-| C-g     | tabnine-clear-overlay |
-| M-f | tabnine-accept-completion-by-word |
+| Key          | action                            |
+| ------------ | --------------------------------- |
+| TAB          | tabnine-accept-completion         |
+| C-g          | tabnine-clear-overlay             |
+| M-f          | tabnine-accept-completion-by-word |
 | M-\<return\> | tabnine-accept-completion-by-line |
-| M-[ | tabnine-previous-completion |
-| M-] | tabnine-next-completion |
+| M-[          | tabnine-previous-completion       |
+| M-]          | tabnine-next-completion           |
 
 ## Known Issues
 

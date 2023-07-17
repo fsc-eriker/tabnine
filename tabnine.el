@@ -8,7 +8,7 @@
 ;; Keywords: convenience
 ;; Version: 0.0.1
 ;; URL: https://github.com/shuxiao9058/tabnine/
-;; Package-Requires: ((emacs "26.1") (dash "2.16.0") (s "1.12.0") (editorconfig "0.9.1") (vterm "0.0.2"))
+;; Package-Requires: ((emacs "26.1") (dash "2.16.0") (s "1.12.0") (editorconfig "0.9.1") (vterm "0.0.2") (language-id "0.5.1"))
 ;;
 ;; Permission is hereby granted, free of charge, to any person obtaining a copy
 ;; of this software and associated documentation files (the "Software"), to deal
@@ -60,6 +60,7 @@
 (require 'url)
 
 (require 'editorconfig)
+(require 'language-id)
 
 ;;
 ;; Constants
@@ -67,6 +68,7 @@
 
 (defconst tabnine--process-name "tabnine")
 (defconst tabnine--buffer-name "*tabnine-log*")
+(defconst tabnine--chat-buffer-name "*tabnine-chat*")
 (defconst tabnine--hooks-alist nil)
 (defconst tabnine--api-version "4.4.223"
   "TabNine api version.")
@@ -207,6 +209,11 @@ e.g.: http://user:password@127.0.0.1:7890"
   :group 'tabnine
   :type 'string)
 
+(defcustom tabnine-api-server "https://api.tabnine.com"
+  "TabNine api server address."
+  :group 'tabnine
+  :type 'string)
+
 ;;
 ;; Faces
 ;;
@@ -255,6 +262,19 @@ Resets every time successful completion is returned.")
 
 (defvar tabnine--post-command-timer nil)
 
+(defvar tabnine--user nil
+  "TabNine user info with plist.
+Key can be: username, access-token and avatar-url.")
+
+(defvar tabnine--access-token nil
+  "TabNine access token.")
+
+(defvar tabnine--chat-enabled nil
+  "Indicate TabNine chat enabled.")
+
+(defvar tabnine--chat-conversation-id nil
+  "The TabNine chat conversation id.")
+
 (defvar tabnine--mutex (make-mutex "tabnine")
   "Global mutex for TabNine completion.")
 
@@ -291,6 +311,17 @@ Resets every time successful completion is returned.")
            (json-false nil))
        (json-read-from-string ,str))))
 
+(defun tabnine--get-api-token()
+  "Get API Token."
+  (unless tabnine--access-token
+    (tabnine-state))
+  tabnine--access-token)
+
+(defun tabnine--get-conversion-id()
+  "Get conversion ID."
+  (unless tabnine--chat-conversation-id
+    (setq tabnine--chat-conversation-id (tabnine--random-uuid)))
+  tabnine--chat-conversation-id)
 ;;
 ;; Agent process
 ;;
@@ -506,7 +537,12 @@ REQUEST should be JSON-serializable object."
                     (format "*%s stderr*" tabnine--process-name)))))
   ;; hook setup
   (message "TabNine server started.")
-  (tabnine-capabilities)
+
+  (unless tabnine--chat-enabled
+    (tabnine-capabilities)
+    (when tabnine--chat-enabled
+    (tabnine-state)))
+
   (dolist (hook tabnine--hooks-alist)
     (add-hook (car hook) (cdr hook))))
 
@@ -559,11 +595,22 @@ REQUEST should be JSON-serializable object."
 
 (defun tabnine-capabilities ()
   "Query TabNine server Capabilities."
-  (tabnine--request 'capabilities))
+  (when-let* ((response (tabnine--request 'capabilities))
+	      (enabled-features (plist-get response :enabled_features)))
+    (seq-doseq (feature enabled-features)
+      (when (equal feature "plugin.feature.tabnine_chat")
+	(setq tabnine--chat-enabled t)))
+    response))
 
 (defun tabnine-state ()
   "Query TabNine Service State."
-  (tabnine--request 'state))
+    (when-let* ((response (tabnine--request 'state))
+		(username (plist-get response :user_name))
+		(access-token (plist-get response :access_token))
+		(avatar-url (plist-get response :user_avatar_url)))
+      (setq tabnine--user (list 'username username 'access-token access-token 'avatar-url avatar-url))
+      (setq tabnine--access-token access-token)
+      response))
 
 (defun tabnine-getidentifierregex ()
   "Get identifier regex from TabNine server."
@@ -642,8 +689,8 @@ PROCESS is the process under watch, EVENT is the event occurred."
 (defun tabnine--completion-capf-p(completion)
   "Check COMPLETION is capf result."
   (tabnine--dbind (:new_prefix) completion
-    (let ((line (length (s-split "\n" (s-trim new_prefix)))))
-      (<= line 2))))
+		  (let ((line (length (s-split "\n" (s-trim new_prefix)))))
+		    (<= line 2))))
 
 (defun tabnine--response-display-with-capf-p(response)
   "Test RESPONSE whether display with overlay."
@@ -962,22 +1009,22 @@ Use TRANSFORM-FN to transform completion if provided."
     (tabnine--dbind (:new_prefix
 		     :old_suffix :new_suffix  :completion_metadata
 		     (:snippet_context (:completion_index))) completion
-      (when (s-starts-with? old_prefix  new_prefix)
-	(setq new_prefix (s-chop-prefix old_prefix new_prefix)))
-      (save-restriction
-	(widen)
-	(let* ((completion-str (if (s-present? new_suffix)
-				   (concat new_prefix new_suffix)
-				 new_prefix))
-	       (completion-data
-		(list  :completion completion-str
-		       :new_prefix new_prefix
-		       :new_suffix new_suffix
-		       :old_suffix old_suffix
-		       :correlation_id correlation_id
-		       :completion_index completion_index
-		       :pos (point))))
-	  (tabnine--display-overlay-completion completion-data))))))
+		     (when (s-starts-with? old_prefix  new_prefix)
+		       (setq new_prefix (s-chop-prefix old_prefix new_prefix)))
+		     (save-restriction
+		       (widen)
+		       (let* ((completion-str (if (s-present? new_suffix)
+						  (concat new_prefix new_suffix)
+						new_prefix))
+			      (completion-data
+			       (list  :completion completion-str
+				      :new_prefix new_prefix
+				      :new_suffix new_suffix
+				      :old_suffix old_suffix
+				      :correlation_id correlation_id
+				      :completion_index completion_index
+				      :pos (point))))
+			 (tabnine--display-overlay-completion completion-data))))))
 
 (defun tabnine--display-overlay-completion (completion)
   "Show COMPLETION with overlay ."
@@ -1203,16 +1250,16 @@ command that triggered `post-command-hook'."
   (tabnine--dbind (:new_prefix
 		   :old_suffix :new_suffix :completion_metadata
 		   (:kind :detail)) candidate
-    (let ((type (tabnine--kind-to-type kind)))
-      (propertize
-       new_prefix
-       'old_suffix old_suffix
-       'new_suffix new_suffix
-       'kind kind
-       'type type
-       'detail detail
-       'annotation
-       (concat (or detail "") " " (or type ""))))))
+		   (let ((type (tabnine--kind-to-type kind)))
+		     (propertize
+		      new_prefix
+		      'old_suffix old_suffix
+		      'new_suffix new_suffix
+		      'kind kind
+		      'type type
+		      'detail detail
+		      'annotation
+		      (concat (or detail "") " " (or type ""))))))
 
 (defun tabnine--construct-candidates (results construct-candidate-fn)
   "Use CONSTRUCT-CANDIDATE-FN to construct a list of candidates from RESULTS."
@@ -1277,6 +1324,252 @@ command that triggered `post-command-hook'."
        (let ((item (cl-find candidate (funcall get-candidates) :test #'string=)))
 	 (tabnine--post-completion item))))))
 
+;;
+;; TabNine chat
+;;
+
+;;; More helpers
+;; code from eglot
+(defconst tabnine--uri-path-allowed-chars
+  (let ((vec (copy-sequence url-path-allowed-chars)))
+    (aset vec ?: nil) ;; see github#639
+    vec)
+  "Like `url-path-allows-chars' but more restrictive.")
+
+(defun tabnine--path-to-uri (path)
+  "URIfy PATH."
+  (let ((truepath (file-truename path)))
+    (if (and (url-type (url-generic-parse-url path))
+             ;; It might be MS Windows path which includes a drive
+             ;; letter that looks like a URL scheme (bug#59338)
+             (not (and (eq system-type 'windows-nt)
+                       (file-name-absolute-p truepath))))
+        ;; Path is already a URI, so forward it to the LSP server
+        ;; untouched.  The server should be able to handle it, since
+        ;; it provided this URI to clients in the first place.
+        path
+      (concat "file://"
+              ;; Add a leading "/" for local MS Windows-style paths.
+              (if (and (eq system-type 'windows-nt)
+                       (not (file-remote-p truepath)))
+                  "/")
+              (url-hexify-string
+               ;; Again watch out for trampy paths.
+               (directory-file-name (file-local-name truepath))
+               tabnine--uri-path-allowed-chars)))))
+
+(defun tabnine--language-id-buffer ()
+  "Return the language used in the current buffer, or NIL.
+
+Prefer getting the ID from the language-id library. Some
+languages do not yet have official GitHub Linguist identifiers,
+yet format-all needs to know about them anyway. That's why we
+have this custom language-id function in format-all. The
+unofficial languages IDs are prefixed with \"_\"."
+  (or (language-id-buffer)
+      (and (or (equal major-mode 'angular-html-mode)
+               (and (equal major-mode 'web-mode)
+                    (equal (symbol-value 'web-mode-content-type) "html")
+                    (equal (symbol-value 'web-mode-engine) "angular")))
+           "_Angular")
+      (and (member major-mode '(js-mode js2-mode js3-mode))
+           (boundp 'flow-minor-mode)
+	   (symbol-value 'flow-minor-mode)
+           "_Flow")
+      (and (equal major-mode 'f90-mode) "_Fortran 90")
+      (and (equal major-mode 'ledger-mode) "_Ledger")))
+
+(defun tabnine--api-editor-context()
+  "Return the editor context for the current state."
+  (let ((file-content (buffer-substring-no-properties (point-min) (point-max)))
+	(selected-code (when (region-active-p)
+			 (buffer-substring-no-properties
+			  (region-beginning)
+			  (region-end))))
+	;; (selected-code-usages)
+	;; (diagnosticsText)
+	(file-uri (tabnine--path-to-uri (buffer-name)))
+	(language (tabnine--language-id-buffer))
+	(line-text-at-cursor (buffer-substring-no-properties (save-excursion
+							       (beginning-of-line) (point))
+							     (save-excursion
+							       (end-of-line) (point))))
+	;; (metadata)
+	)
+    (list
+     :fileCode file-content
+     :selectedCode selected-code
+     ;; :selectedCodeUsages
+     :diagnosticsText ""
+     :fileUri file-uri
+     :language language
+     :lineTextAtCursor line-text-at-cursor
+     :metadata nil)))
+
+(defun tabnine--random-uuid ()
+  "Random a UUID. This use a simple hashing of variable data.
+Example of a UUID: 1df63142-a513-c850-31a3-535fc3520c3d."
+  (let ((str (md5 (format "%s%s%s%s%s%s%s%s%s%s"
+                            (user-uid)
+                            (emacs-pid)
+                            (system-name)
+                            (user-full-name)
+                            (current-time)
+                            (emacs-uptime)
+                            (garbage-collect)
+                            (buffer-string)
+                            (random)
+                            (recent-keys)))))
+
+    (format "%s-%s-4%s-%s%s-%s"
+                    (substring str 0 8)
+                    (substring str 8 12)
+                    (substring str 13 16)
+                    (format "%x" (+ 8 (random 4)))
+                    (substring str 17 20)
+                    (substring str 20 32))))
+
+(defun tabnine--api-text-by-method(method)
+  "Get text by METHOD."
+  (let ((text))
+    (cond
+     ((eq method 'explain-code)
+      (setq text "Explain the selected code"))
+     ((eq method 'generate-test-for-code)
+      (setq text "Write tests for the selected code"))
+     ((eq method 'document-code)
+      (setq text "Add documentation for the selected code"))
+     ((eq method 'fix-code)
+      (setq text "Find errors in the selected code and fix them")))
+    text))
+
+(defun tabnine--api-make-request (method)
+  "TabNine api make request with METHOD.
+Method can be explain-code, document-code, generate-test-for-code or fix-code."
+  (let ((current-context (list
+			  :id (tabnine--random-uuid)
+			  :text (tabnine--api-text-by-method method)
+			  :by "user"
+			  :editorContext (tabnine--api-editor-context)
+			  :diagnosticsText (tabnine--get-diagnostics-text)
+			  ;; :retrievalContext
+			  )))
+    (list
+     :conversationId (tabnine--get-conversion-id)
+     :messageId (tabnine--random-uuid)
+     :input (vector current-context)
+     :isTelemetryEnabled :json-false)))
+
+(defmacro tabnine--api-send-request (method)
+  "Tabnine api send request with METHOD."
+  `(let* ((request (tabnine--api-make-request ,method))
+	  (encoded (tabnine--json-serialize request))
+	  (url-request-method "POST")
+	  (url-str (concat tabnine-api-server "/chat/generate_chat_response"))
+	  (url-request-data (url-http--encode-string encoded))
+	  ;; (url-request-coding-system 'utf-8)
+	  (url-http-attempt-keepalives t)
+	(url-request-extra-headers `(("Authorization" . ,(concat  "Bearer " (tabnine--get-api-token)))
+				  ("Content-Type" . "application/json")
+				  ("Accept" . "*/*")))
+	(buf (url-retrieve-synchronously url-str nil t)))
+     ;; (switch-to-buffer buf)
+    (let* ((results (tabnine--url-parse-response buf))
+	   (text (tabnine--results-to-text results)))
+      (when text
+	(with-current-buffer (get-buffer-create tabnine--chat-buffer-name)
+	  (goto-char (point-min))
+	  (insert "\n==================START===================\n")
+	  (insert text)
+	  (insert "\n==================END===================\n\n")))
+      (switch-to-buffer tabnine--chat-buffer-name))
+    (when (bufferp buf)
+      (kill-buffer buf))))
+
+(defun tabnine--get-diagnostics-text()
+  "Get diagnostic text with flycheck."
+  (let ((errors (tabnine--get-list-errors)))
+    (string-join errors)))
+
+(defun tabnine--get-list-errors()
+  "Get current buffer error list."
+  (when (and (fboundp 'flycheck-mode)
+                      (boundp 'flycheck-mode)
+                      flycheck-mode
+                      (equal flycheck-last-status-change 'finished)
+                      (> (length flycheck-current-errors) 0))
+    (mapcar (lambda(x)
+	      (let ((e-line (flycheck-error-line  x))
+		      (e-filename (flycheck-error-filename x))
+		      (buffer-name (buffer-file-name))
+		      (e-message (flycheck-error-message x))
+		      (region-begin-line (when (region-active-p) (save-excursion (goto-char (region-beginning)) (line-number-at-pos))) )
+		      (region-end-line (when (region-active-p) (save-excursion  (goto-char (region-end)) (line-number-at-pos)))))
+
+		  (if buffer-name
+		      (when (equal buffer-name e-filename)
+			(if (region-active-p)
+			    (when (and (>= e-line region-begin-line) (<= e-line region-end-line))
+			      e-message)
+			  e-message))
+		    e-message))) flycheck-current-errors)))
+
+
+;;
+;; TabNine Chat Operations
+;;
+
+
+(defun tabnine-chat-explain-code()
+  "TabNine chat explain code."
+  (interactive)
+  (tabnine--api-send-request 'explain-code))
+
+(defun tabnine-chat-generate-test-for-code()
+  "TabNine chat generate test for code."
+  (interactive)
+  (tabnine--api-send-request 'generate-test-for-code))
+
+(defun tabnine-chat-document-code()
+  "TabNine chat write document code."
+  (interactive)
+  (tabnine--api-send-request 'document-code))
+
+(defun tabnine-chat-fix-code()
+  "Find errors in the selected code and fix them."
+  (interactive)
+  (tabnine--api-send-request 'fix-code))
+
+(defun tabnine--url-parse-response (response-buffer)
+  "Parse response in RESPONSE-BUFFER."
+  (when (buffer-live-p response-buffer)
+    (with-current-buffer response-buffer
+      (let* ((http-msg (progn (goto-char (point-min))
+			      (string-trim
+			       (buffer-substring
+				(line-beginning-position)
+				(line-end-position)))))
+             (body (progn (goto-char (point-min))
+			  (forward-paragraph)
+			      (decode-coding-string
+			       (buffer-substring-no-properties (point) (point-max))
+			       'utf-8))))
+	  (cond
+           ((string-match-p "404 Not Found" http-msg);; token expired
+	    (message "TabNine token is expired, set tabnine--access-token to nil.")
+	    (setq tabnine--access-token nil))
+	   ((string-match-p "200 OK" http-msg)
+	    (let* ((ss (s-split "\n" (s-trim body)))
+		   (ss (cl-remove-if (lambda(x) (not (s-present? x))) ss))
+		   (json-ss (mapcar (lambda(x) (tabnine--read-json x)) ss)))
+	      json-ss))
+	   (t (message "unknow error: %s" http-msg)))))))
+
+(defun tabnine--results-to-text(results)
+  "TabNine RESULTS in sequence to text."
+  (when results
+    (let ((text-arr (mapcar (lambda(x) (plist-get x :text)) results)))
+      (string-join text-arr))))
 
 (provide 'tabnine)
 
