@@ -1,4 +1,11 @@
 ;;; tabnine-util.el --- TabNine Utilities functions -*- lexical-binding: t -*-
+
+;; Copyright (C) 2023  Aaron Ji
+
+;; Author: Aaron Ji;; <shuxiao9058@gmail.com>
+;; Keywords: convenience
+;;
+
 ;;
 ;; Permission is hereby granted, free of charge, to any person obtaining a copy
 ;; of this software and associated documentation files (the "Software"), to deal

@@ -150,4 +150,14 @@ None.
 
 ## Thanks
 
-Thanks to the great work of [Tommy Xiang](https://github.com/TommyX12) and [zerolfx](https://github.com/zerolfx/copilot.el).
+Thanks to the great work of [Tommy Xiang](https://github.com/TommyX12), [zerolfx](https://github.com/zerolfx/copilot.el) and [karthink](https://github.com/karthink).
+
+These projects helped me a lot:
+
+https://github.com/TommyX12/company-tabnine
+
+https://github.com/50ways2sayhard/tabnine-capf
+
+https://github.com/zerolfx/copilot.el
+
+https://github.com/karthink/gptel

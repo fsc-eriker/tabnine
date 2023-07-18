@@ -1,10 +1,11 @@
 ;;; tabnine.el --- An unofficial TabNine package ;; -*- lexical-binding: t -*-
 ;;
-;; Copyright (c) 2023 Tommy Xiang, John Gong, Aaron Ji
+;; Copyright (c) 2023  Aaron Ji, Tommy Xiang, John Gong
 ;;
-;; Author: Tommy Xiang <tommyx058@gmail.com>
+;; Author: Aaron Ji <shuxiao9058@gmail.com>
+;;         Tommy Xiang <tommyx058@gmail.com>
 ;;         John Gong <gjtzone@hotmail.com>
-;;         Aaron Ji <shuxiao9058@gmail.com>
+;;
 ;; Keywords: convenience
 ;; Version: 0.0.1
 ;; URL: https://github.com/shuxiao9058/tabnine/

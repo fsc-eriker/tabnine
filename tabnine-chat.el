@@ -1,5 +1,11 @@
 ;;; tabnine-chat.el --- TabNine Chat -*- lexical-binding: t -*-
+
+;; Copyright (C) 2023  Aaron Ji
+
+;; Author: Aaron Ji;; <shuxiao9058@gmail.com>
+;; Keywords: convenience
 ;;
+
 ;; Permission is hereby granted, free of charge, to any person obtaining a copy
 ;; of this software and associated documentation files (the "Software"), to deal
 ;; in the Software without restriction, including without limitation the rights
@@ -35,15 +41,19 @@
 ;; (declare-function tabnine-chat-menu "tabnine-chat-transient")
 (declare-function tabnine-util--path-to-uri "tabnine-util")
 (declare-function tabnine-util--language-id-buffer "tabnine-util")
+(declare-function tabnine-chat-curl-get-response "tabnine-chat-curl")
 
-(defconst tabnine-chat--buffer-name "*tabnine-chat*")
+(defconst tabnine-chat--debug-buffer-name "*tabnine-chat-debug*")
+(defconst tabnine-chat--curl-buffer-name "*tabnine-chat-curl*")
+
+(defvar tabnine-chat-default-session "*tabnine-chat*")
 
 (defcustom tabnine-chat-default-mode (if (featurep 'markdown-mode)
 					 'markdown-mode
 				       'text-mode)
   "The default major mode for dedicated chat buffers.
 
-If `markdown-mode' is available, it is used. Otherwise gptel
+If `markdown-mode' is available, it is used. Otherwise tabnine-chat
 defaults to `text-mode'."
   :group 'tabnine
   :type 'symbol)
@@ -60,17 +70,15 @@ is only inserted in dedicated tabnine chat buffers."
   :group 'tabnine
   :type '(alist :key-type symbol :value-type string))
 
-(defcustom tabnine-api-server "https://api.tabnine.com"
-  "TabNine api server address."
-  :group 'tabnine
-  :type 'string)
-
-(defun tabnine-chat-prompt-string ()
-  "TabNine chat prompt string."
+(defun tabnine-chat-prompt-prefix-string ()
+  "TabNine chat prompt prefix string."
   (or (alist-get major-mode tabnine-chat-prompt-prefix-alist) ""))
 
 (defvar-local tabnine-chat--num-messages-to-send nil)
 (defvar-local tabnine-chat--old-header-line nil)
+
+(defvar tabnine-chat--debug nil
+    "TabNine chat debugging.")
 
 (define-minor-mode tabnine-chat-mode
   "Minor mode for interacting with TabNine Chat."
@@ -81,29 +89,7 @@ is only inserted in dedicated tabnine chat buffers."
             header-line-format
             (list (concat (propertize " " 'display '(space :align-to 0))
                           (format "%s" (buffer-name)))
-                  (propertize " Ready" 'face 'success)
-                  '(:eval
-                    (let* ((l1 (length gptel-model))
-                           (num-exchanges
-                            (if tabnine-chat--num-messages-to-send
-                                (format "[Send: %s exchanges]" tabnine-chat--num-messages-to-send)
-                              "[Send: buffer]"))
-                           (l2 (length num-exchanges)))
-                     (concat
-                      (propertize
-                       " " 'display `(space :align-to ,(max 1 (- (window-width) (+ 2 l1 l2)))))
-                      (propertize
-                       (button-buttonize num-exchanges
-                        (lambda (&rest _) (gptel-menu)))
-                       'mouse-face 'highlight
-                       'help-echo
-                       "Number of past exchanges to include with each request")
-                      " "
-                      (propertize
-                       (button-buttonize (concat "[" tabnine-chat-model "]")
-                            (lambda (&rest _) (gptel-menu)))
-                           'mouse-face 'highlight
-                           'help-echo "OpenAI GPT model in use"))))))
+                  (propertize " Ready" 'face 'success)))
     (setq header-line-format tabnine-chat--old-header-line)))
 
 (defun tabnine-chat--update-header-line (msg face)
@@ -126,10 +112,32 @@ all at once. This wait is asynchronous.
   :type 'boolean)
 
 (defcustom tabnine-chat-use-curl (and (executable-find "curl") t)
-  "Whether gptel should prefer Curl when available."
+  "Whether TabNine Chat should prefer Curl when available."
   :group 'tabnine
   :type 'boolean)
 
+(defcustom tabnine-chat-response-filter-functions
+  '(tabnine-chat--convert-org)
+  "Abnormal hook for transforming the response from ChatGPT.
+
+This is useful if you want to format the response in some way,
+such as filling paragraphs, adding annotations or recording
+information in the response like links.
+
+Each function in this hook receives two arguments, the response
+string to transform and the ChatGPT interaction buffer. It should
+return the transformed string."
+  :group 'tabnine
+  :type 'hook)
+
+
+(defcustom tabnine-chat-post-response-hook nil
+  "Hook run after inserting TabNine Chat's response into the current buffer.
+
+This hook is called in the buffer from which the prompt was sent
+to TabNine Chat. Note: this hook runs even if the request fails."
+  :group 'tabnine
+  :type 'hook)
 
 ;;
 ;; Variables
@@ -137,6 +145,13 @@ all at once. This wait is asynchronous.
 
 (defvar tabnine-chat--conversation-id nil
   "The TabNine chat conversation id.")
+
+(defvar tabnine-chat-prompts-alist
+  '((explain-code . "Explain the selected code")
+    (generate-test-for-code . "Write tests for the selected code")
+    (document-code ."Add documentation for the selected code")
+    (fix-code . "Find errors in the selected code and fix them"))
+  "A list of cons cells that map method to TabNine Chat prompt string.")
 
 (defun tabnine-chat--get-api-token()
   "Get API Token."
@@ -177,64 +192,91 @@ all at once. This wait is asynchronous.
      :lineTextAtCursor line-text-at-cursor
      :metadata nil)))
 
-(defun tabnine-chat--text-by-method(method)
-  "Get text by METHOD."
-  (let ((text))
-    (cond
-     ((eq method 'explain-code)
-      (setq text "Explain the selected code"))
-     ((eq method 'generate-test-for-code)
-      (setq text "Write tests for the selected code"))
-     ((eq method 'document-code)
-      (setq text "Add documentation for the selected code"))
-     ((eq method 'fix-code)
-      (setq text "Find errors in the selected code and fix them")))
-    text))
-
-(defun tabnine-chat--make-request (method)
-  "TabNine api make request with METHOD.
+(defun tabnine-chat--make-request (prompt)
+  "TabNine api make request with PROMPT.
 Method can be explain-code, document-code, generate-test-for-code or fix-code."
-  (let ((current-context (list
+  (let ((context (list
 			  :id (tabnine-util--random-uuid)
-			  :text (tabnine-chat--text-by-method method)
+			  :text prompt
 			  :by "user"
 			  :editorContext (tabnine-chat--editor-context)
-			  :diagnosticsText (tabnine-chat--get-diagnostics-text)
+			  :diagnosticsText (tabnine-chat--diagnostics-text)
 			  ;; :retrievalContext
 			  )))
     (list
      :conversationId (tabnine-chat--get-conversion-id)
      :messageId (tabnine-util--random-uuid)
-     :input (vector current-context)
+     :input (vector context)
      :isTelemetryEnabled :json-false)))
 
-(defmacro tabnine-chat--send-request (method)
-  "Tabnine api send request with METHOD."
-  `(let* ((request (tabnine-chat--make-request ,method))
-	  (encoded (tabnine-util--json-serialize request))
-	  (url-request-method "POST")
-	  (url-str (concat tabnine-api-server "/chat/generate_chat_response"))
-	  (url-request-data (url-http--encode-string encoded))
-	  ;; (url-request-coding-system 'utf-8)
-	  (url-http-attempt-keepalives t)
-	(url-request-extra-headers `(("Authorization" . ,(concat  "Bearer " (tabnine-chat--get-api-token)))
-				  ("Content-Type" . "application/json")
-				  ("Accept" . "*/*")))
-	(buf (url-retrieve-synchronously url-str nil t)))
-     ;; (switch-to-buffer buf)
-    (let* ((results (tabnine-chat--url-parse-response buf))
-	   (text (tabnine-chat--results-to-text results)))
-      (when text
-	(with-current-buffer (get-buffer-create tabnine-chat--buffer-name)
-	  (goto-char (point-min))
-	  (insert "\n==================START===================\n")
-	  (insert text)
-	  (insert "\n==================END===================\n\n")))
-      (switch-to-buffer tabnine-chat--buffer-name))
-    (when (bufferp buf)
-      (kill-buffer buf))))
+(defun tabnine-chat--url-get-response (info &optional callback)
+  "Fetch response to prompt in INFO from TabNine Chat.
 
-(defun tabnine-chat--get-diagnostics-text()
+INFO is a plist with the following keys:
+- :prompt (the prompt being sent)
+- :buffer (the tabnine chat buffer)
+- :position (marker at which to insert the response).
+
+Call CALLBACK with the response and INFO afterwards. If omitted
+the response is inserted into the current buffer after point."
+  (let* ((inhibit-message t)
+         (message-log-max nil)
+         (url-request-method "POST")
+         (url-request-extra-headers
+         `(("Content-Type" . "application/json")
+           ("Authorization" . ,(concat "Bearer " (tabnine-chat--get-api-token)))))
+	 (request (tabnine-chat--make-request (plist-get info :prompt)))
+	 (encoded (tabnine-util--json-serialize request))
+	 (url-request-data (url-http--encode-string encoded)))
+    (url-retrieve (format "%s/chat/generate_chat_response" tabnine-api-server)
+                  (lambda (_)
+                    (pcase-let ((`(,response ,http-msg ,error)
+                                 (tabnine-chat--url-parse-response (current-buffer))))
+                      (plist-put info :status http-msg)
+                      (when error (plist-put info :error error))
+                      (funcall (or callback #'tabnine-chat--insert-response)
+                               response info)
+                      (kill-buffer)))
+                  nil t nil)))
+
+(defun tabnine-chat--session-buffer()
+  "Create TabNine session buffer if not exists."
+  (let* ((name tabnine-chat-default-session)
+	 (buffer (get-buffer name)))
+    (unless buffer
+      (with-current-buffer (get-buffer-create name)
+	(cond ;Set major mode
+	 ((eq major-mode tabnine-chat-default-mode))
+	 ((eq tabnine-chat-default-mode 'text-mode)
+	  (text-mode)
+	  (visual-line-mode 1))
+	 (t (funcall tabnine-chat-default-mode)))
+	(unless tabnine-chat-mode (tabnine-chat-mode 1))
+	(if (bobp) (insert (or ;; initial
+			       (tabnine-chat-prompt-prefix-string))))
+	(goto-char (point-max))
+	(skip-chars-backward "\t\r\n")
+	(setq buffer (current-buffer))))
+    buffer))
+
+(defun tabnine-chat--request(method &optional callback)
+    "Make tabnine chat request with METHOD and optional CALLBACK."
+    (let* ((buffer (tabnine-chat--session-buffer))
+	   (info (list :prompt (alist-get method tabnine-chat-prompts-alist)
+		       :buffer buffer
+		       :position (with-current-buffer buffer
+				     (tabnine-chat--update-header-line " Waiting..." 'warning)
+				     (goto-char (point-max))
+				     (insert (format "%s%s\t\r\n" (tabnine-chat-prompt-prefix-string) (alist-get method tabnine-chat-prompts-alist)))
+				     (point-marker)))))
+      (funcall
+       (if tabnine-chat-use-curl
+	   #'tabnine-chat-curl-get-response #'tabnine-chat--url-get-response)
+       info callback)
+      (unless (eq buffer (current-buffer))
+	(switch-to-buffer buffer))))
+
+(defun tabnine-chat--diagnostics-text()
   "Get diagnostic text with flycheck."
   (let ((errors (tabnine-util--get-list-errors)))
     (string-join errors)))
@@ -261,7 +303,7 @@ Method can be explain-code, document-code, generate-test-for-code or fix-code."
 	    (let* ((ss (s-split "\n" (s-trim body)))
 		   (ss (cl-remove-if (lambda(x) (not (s-present? x))) ss))
 		   (json-ss (mapcar (lambda(x) (tabnine-util--read-json x)) ss)))
-	      json-ss))
+	      (list (tabnine-chat--results-to-text json-ss) http-msg)))
 	   (t (message "unknow error: %s" http-msg)))))))
 
 (defun tabnine-chat--results-to-text(results)
@@ -270,6 +312,184 @@ Method can be explain-code, document-code, generate-test-for-code or fix-code."
     (let ((text-arr (mapcar (lambda(x) (plist-get x :text)) results)))
       (string-join text-arr))))
 
+(defun tabnine-chat--insert-response (response info)
+  "Insert RESPONSE from ChatGPT into the TabNine Chat buffer.
+
+INFO is a plist containing information relevant to this buffer.
+See `tabnine-chat--url-get-response' for details."
+  (let* ((status-str  (plist-get info :status))
+         (tabnine-chat-buffer (plist-get info :buffer))
+         (start-marker (plist-get info :position)))
+    ;; Handle read-only buffers
+    (when (with-current-buffer tabnine-chat-buffer
+            (or buffer-read-only
+                (get-char-property start-marker 'read-only)))
+      (message "Buffer is read only, displaying reply in buffer \"*TabNine Chat response*\"")
+      (display-buffer
+       (with-current-buffer (get-buffer-create "*TabNine Chat response*")
+         (goto-char (point-max))
+         (move-marker start-marker (point) (current-buffer))
+         (current-buffer))
+       '((display-buffer-reuse-window
+          display-buffer-pop-up-window)
+         (reusable-frames . visible))))
+    ;; Insert response and status message/error message
+    (with-current-buffer tabnine-chat-buffer
+      (if response
+          (progn
+            (setq response (tabnine-chat--transform-response
+                               response tabnine-chat-buffer))
+            (save-excursion
+              (put-text-property 0 (length response) 'tabnine-chat 'response response)
+              (with-current-buffer (marker-buffer start-marker)
+                (goto-char start-marker)
+                (unless (or (bobp) (plist-get info :in-place))
+                  (insert "\n\n"))
+                (let ((p (point)))
+                  (insert response)
+                  (pulse-momentary-highlight-region p (point)))
+                (when tabnine-chat-mode (insert "\n\n" (tabnine-chat-prompt-prefix-string))))
+              (when tabnine-chat-mode (tabnine-chat--update-header-line " Ready" 'success))))
+        (tabnine-chat--update-header-line
+         (format " Response Error: %s" status-str) 'error)
+        (message "TabNine Chat response error: (%s) %s"
+                 status-str (plist-get info :error)))
+      (run-hooks 'tabnine-chat-post-response-hook))))
+
+
+
+;; TODO: Use `run-hook-wrapped' with an accumulator instead to handle
+;; buffer-local hooks, etc.
+(defun tabnine-chat--transform-response (content-str buffer)
+  "Filter CONTENT-STR through `tabnine-chat-response-filter-functions`.
+
+BUFFER is passed along with CONTENT-STR to each function in this
+hook."
+  (let ((filtered-str content-str))
+    (dolist (filter-func tabnine-chat-response-filter-functions filtered-str)
+      (condition-case nil
+          (when (functionp filter-func)
+            (setq filtered-str
+                  (funcall filter-func filtered-str buffer)))
+        (error
+         (display-warning '(tabnine-chat filter-functions)
+                          (format "Function %S returned an error"
+                                  filter-func)))))))
+
+(defun tabnine-chat--convert-org (content buffer)
+  "Transform CONTENT according to required major-mode.
+
+Currently only `org-mode' is handled.
+
+BUFFER is the interaction buffer for ChatGPT."
+  (pcase (buffer-local-value 'major-mode buffer)
+    ('org-mode (tabnine-chat--convert-markdown->org content))
+    (_ content)))
+
+(defun tabnine-chat--convert-markdown->org (str)
+  "Convert string STR from markdown to org markup.
+
+This is a very basic converter that handles only a few markup
+elements."
+  (interactive)
+  (with-temp-buffer
+    (insert str)
+    (goto-char (point-min))
+    (while (re-search-forward "`\\|\\*\\{1,2\\}\\|_" nil t)
+      (pcase (match-string 0)
+        ("`" (if (looking-at "``")
+                 (progn (backward-char)
+                        (delete-char 3)
+                        (insert "#+begin_src ")
+                        (when (re-search-forward "^```" nil t)
+                          (replace-match "#+end_src")))
+               (replace-match "=")))
+        ("**" (cond
+               ((looking-at "\\*\\(?:[[:word:]]\\|\s\\)")
+                (delete-char 1))
+               ((looking-back "\\(?:[[:word:]]\\|\s\\)\\*\\{2\\}"
+                              (max (- (point) 3) (point-min)))
+                (backward-delete-char 1))))
+        ((or "_" "*")
+         (if (save-match-data
+               (and (looking-back "\\(?:[[:space:]]\\|\s\\)\\(?:_\\|\\*\\)"
+                                  (max (- (point) 2) (point-min)))
+                    (not (looking-at "[[:space:]]\\|\s"))))
+             ;; Possible beginning of italics
+             (and
+              (save-excursion
+                (when (and (re-search-forward (regexp-quote (match-string 0)) nil t)
+                           (looking-at "[[:space]]\\|\s")
+                           (not (looking-back "\\(?:[[:space]]\\|\s\\)\\(?:_\\|\\*\\)"
+                                              (max (- (point) 2) (point-min)))))
+                  (backward-delete-char 1)
+                  (insert "/") t))
+              (progn (backward-delete-char 1)
+                     (insert "/")))))))
+    (buffer-string)))
+
+(defun tabnine-chat--stream-convert-markdown->org ()
+  "Return a Markdown to Org converter.
+
+This function parses a stream of Markdown text to Org
+continuously when it is called with successive chunks of the
+text stream."
+  (letrec ((in-src-block)
+           (temp-buf (generate-new-buffer-name "*tabnine-chat-temp*"))
+           (start-pt (make-marker))
+           (cleanup-fn
+            (lambda ()
+              (when (buffer-live-p (get-buffer temp-buf))
+                (set-marker start-pt nil)
+                (kill-buffer temp-buf))
+              (remove-hook 'tabnine-chat-post-response-hook cleanup-fn))))
+    (add-hook 'tabnine-chat-post-response-hook cleanup-fn)
+    (lambda (str)
+      (let ((noop-p))
+        (with-current-buffer (get-buffer-create temp-buf)
+          (save-excursion (goto-char (point-max))
+                          (insert str))
+          (when (marker-position start-pt) (goto-char start-pt))
+          (save-excursion
+            (while (re-search-forward "`\\|\\*\\{1,2\\}\\|_" nil t)
+              (pcase (match-string 0)
+                ("`"
+                 (cond
+                  ((looking-at "``")
+                   (backward-char 1)
+                   (delete-char 3)
+                   (if in-src-block
+                       (progn (insert "#+end_src")
+                              (setq in-src-block nil))
+                     (insert "#+begin_src ")
+                     (setq in-src-block t)))
+                  ((looking-at "`\\|$")
+                   (setq noop-p t)
+                   (set-marker start-pt (1- (point)))
+                   (unless (eobp) (forward-char 1)))
+                  ((not in-src-block) (replace-match "="))))
+                ((and "**" (guard (not in-src-block)))
+                 (cond
+                  ((looking-at "\\*\\(?:[[:word:]]\\|\s\\)")
+                   (delete-char 1))
+                  ((looking-back "\\(?:[[:word:]]\\|\s\\)\\*\\{2\\}"
+                                 (max (- (point) 3) (point-min)))
+                   (backward-delete-char 1))))
+                ((and (or "_" "*") (guard (not in-src-block)))
+                 (when (save-match-data
+                         (save-excursion
+                           (backward-char 2)
+                           (or
+                            (looking-at
+                             "[^[:space:][:punct:]\n]\\(?:_\\|\\*\\)\\(?:[[:space:][:punct:]]\\|$\\)")
+                            (looking-at
+                             "\\(?:[[:space:][:punct:]]\\)\\(?:_\\|\\*\\)\\([^[:space:][:punct:]]\\|$\\)"))))
+                   (backward-delete-char 1)
+                   (insert "/"))))))
+          (if noop-p
+              (buffer-substring (point) start-pt)
+            (prog1 (buffer-substring (point) (point-max))
+                   (set-marker start-pt (point-max)))))))))
 
 ;;
 ;; TabNine Chat Operations
@@ -278,22 +498,22 @@ Method can be explain-code, document-code, generate-test-for-code or fix-code."
 (defun tabnine-chat-explain-code()
   "TabNine chat explain code."
   (interactive)
-  (tabnine-chat--send-request 'explain-code))
+  (tabnine-chat--request 'explain-code))
 
 (defun tabnine-chat-generate-test-for-code()
   "TabNine chat generate test for code."
   (interactive)
-  (tabnine-chat--send-request 'generate-test-for-code))
+  (tabnine-chat--request 'generate-test-for-code))
 
 (defun tabnine-chat-document-code()
   "TabNine chat write document code."
   (interactive)
-  (tabnine-chat--send-request 'document-code))
+  (tabnine-chat--request 'document-code))
 
 (defun tabnine-chat-fix-code()
   "Find errors in the selected code and fix them."
   (interactive)
-  (tabnine-chat--send-request 'fix-code))
+  (tabnine-chat--request 'fix-code))
 
 
 (provide 'tabnine-chat)

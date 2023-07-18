@@ -1,4 +1,11 @@
 ;;; tabnine-core.el --- TabNine Core(complete)-*- lexical-binding: t -*-
+
+;; Copyright (C) 2023  Aaron Ji
+
+;; Author: Aaron Ji;; <shuxiao9058@gmail.com>
+;; Keywords: convenience
+;;
+
 ;;
 ;; Permission is hereby granted, free of charge, to any person obtaining a copy
 ;; of this software and associated documentation files (the "Software"), to deal
@@ -148,6 +155,11 @@ Only useful on GNU/Linux.  Automatically set if NixOS is detected."
 (defcustom tabnine-network-proxy nil
   "Network proxy to use for TabNine. Nil means no proxy.
 e.g.: http://user:password@127.0.0.1:7890"
+  :group 'tabnine
+  :type 'string)
+
+(defcustom tabnine-api-server "https://api.tabnine.com"
+  "TabNine api server address."
   :group 'tabnine
   :type 'string)
 
