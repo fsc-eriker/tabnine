@@ -35,20 +35,22 @@
 
 (require 'tabnine-core)
 (require 'tabnine-chat)
+(require 'tabnine-util)
 
 (eval-when-compile
   (require 'cl-lib)
   (require 'subr-x))
 (require 'map)
+(require 's)
 
 (defvar tabnine-chat-curl--process-alist nil
   "Alist of active TabNine Chat curl requests.")
 
-(defun tabnine-chat-curl--get-args (info)
+(defun tabnine-chat-curl--get-args (prompt token)
   "Produce list of arguments for calling Curl.
 
-INFO is the operation info."
-  (let* ((request (tabnine-chat--make-request (plist-get info :prompt)))
+PROMPT is the chat prompt to send, TOKEN is a unique identifier.."
+  (let* ((request (tabnine-chat--make-request prompt))
 	 (encoded (tabnine-util--json-serialize request))
 	 (data (url-http--encode-string encoded))
 	 (url (format "%s/chat/generate_chat_response" tabnine-api-server))
@@ -58,15 +60,13 @@ INFO is the operation info."
     (append
      (list "--location" "--silent" "--compressed" "--disable"
            (format "-X%s" "POST")
-           ;; (format "-w(%s . %%{size_header})" token)
+           (format "-w(%s . %%{size_header})" token)
            (format "-m%s" 60)
            "-D-"
            (format "-d%s" data))
      (when (and tabnine-network-proxy (stringp tabnine-network-proxy)
 		(not (string-empty-p tabnine-network-proxy)))
-       (list "--proxy" tabnine-network-proxy
-             "--proxy-negotiate"
-             "--proxy-user" ":"))
+       (list "--proxy" tabnine-network-proxy))
      (cl-loop for (key . val) in headers
               collect (format "-H%s: %s" key val))
      (list url))))
@@ -87,7 +87,7 @@ the response is inserted into the current buffer after point."
   (let* ((token (md5 (format "%s%s%s%s"
                              (random) (emacs-pid) (user-full-name)
                              (recent-keys))))
-	 (args (tabnine-chat-curl--get-args info))
+	 (args (tabnine-chat-curl--get-args (plist-get info :prompt) token))
          (process (apply #'start-process "tabnine-chat-curl"
                          (generate-new-buffer tabnine-chat--curl-buffer-name) "curl" args)))
     (with-current-buffer (process-buffer process)
@@ -227,12 +227,14 @@ PROCESS is the process under watch, OUTPUT is the output received."
         (save-excursion
           (goto-char (point-min))
           (when-let* (((not (= (line-end-position) (point-max))))
-                      (http-msg (buffer-substring (line-beginning-position)
-                                                  (line-end-position)))
+                      (http-msg (progn
+				  (goto-char (point-min))
+				  (buffer-substring (line-beginning-position)
+						    (line-end-position))))
                       (http-status
-                       (save-match-data
-                         (and (string-match "HTTP/[.0-9]+ +\\([0-9]+\\)" http-msg)
-                              (match-string 1 http-msg)))))
+		       (save-match-data
+			 (and (string-match "HTTP/[.0-9]+ +\\([0-9]+\\)" http-msg)
+			      (match-string 1 http-msg)))))
             (plist-put proc-info :http-status http-status)
             (plist-put proc-info :status (string-trim http-msg))))
         ;; Handle read-only TabNine Chat buffer
@@ -309,23 +311,26 @@ buffer."
           ;;   (goto-char (point-min)))
           (goto-char (point-min))
 
-          (if-let* ((http-msg (string-trim
-                               (buffer-substring (line-beginning-position)
-                                                 (line-end-position))))
+          (if-let* ((http-msg (progn (goto-char (point-min))
+			      (string-trim
+			       (buffer-substring
+				(line-beginning-position)
+				(line-end-position)))))
+		    (body (progn (goto-char (point-min))
+			  (forward-paragraph)
+			      (decode-coding-string
+			       (buffer-substring-no-properties (point) (point-max))
+			       'utf-8)))
                     (http-status
-                     (save-match-data
-                       (and (string-match "HTTP/[.0-9]+ +\\([0-9]+\\)" http-msg)
-                            (match-string 1 http-msg))))
-                    (json-object-type 'plist)
-                    (response (progn (goto-char header-size)
-                                     (condition-case nil
-                                         (json-read)
-                                       (json-readtable-error 'json-read-error)))))
+		     (save-match-data
+		       (and (string-match "HTTP/[.0-9]+ +\\([0-9]+\\)" http-msg)
+			    (match-string 1 http-msg)))))
               (cond
                ((equal http-status "200")
-                (list (string-trim
-                       (map-nested-elt response '(:choices 0 :message :content)))
-                      http-msg))
+		(let* ((ss (s-split "\n" (s-trim body)))
+		       (ss (cl-remove-if (lambda(x) (not (s-present? x))) ss))
+		       (json-ss (mapcar (lambda(x) (tabnine-util--read-json x)) ss)))
+		  (list (tabnine-chat--results-to-text json-ss) http-msg)))
                 ((plist-get response :error)
                  (let* ((error-plist (plist-get response :error))
                         (error-msg (plist-get error-plist :message))

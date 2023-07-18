@@ -33,10 +33,15 @@
 ;; Dependencies
 ;;
 
-(require 'url)
-(require 'url-http)
 (require 'tabnine-core)
 (require 'tabnine-util)
+
+(eval-when-compile
+  (require 'cl-lib))
+
+(require 'url)
+(require 'url-http)
+(require 's)
 
 ;; (declare-function tabnine-chat-menu "tabnine-chat-transient")
 (declare-function tabnine-util--path-to-uri "tabnine-util")
@@ -267,7 +272,9 @@ the response is inserted into the current buffer after point."
 		       :position (with-current-buffer buffer
 				     (tabnine-chat--update-header-line " Waiting..." 'warning)
 				     (goto-char (point-max))
-				     (insert (format "%s%s\t\r\n" (tabnine-chat-prompt-prefix-string) (alist-get method tabnine-chat-prompts-alist)))
+				     (skip-chars-backward "\t\r\n")
+				     (insert (alist-get method tabnine-chat-prompts-alist))
+				     (goto-char (point-max))
 				     (point-marker)))))
       (funcall
        (if tabnine-chat-use-curl
@@ -294,12 +301,15 @@ the response is inserted into the current buffer after point."
 			  (forward-paragraph)
 			      (decode-coding-string
 			       (buffer-substring-no-properties (point) (point-max))
-			       'utf-8))))
+			       'utf-8)))
+	     (http-status (save-match-data
+			    (and (string-match "HTTP/[.0-9]+ +\\([0-9]+\\)" http-msg)
+				 (match-string 1 http-msg)))))
 	  (cond
-           ((string-match-p "404 Not Found" http-msg);; token expired
+           ((equal http-status "404");; token expired
 	    (message "TabNine token is expired, set tabnine--access-token to nil.")
 	    (setq tabnine--access-token nil))
-	   ((string-match-p "200 OK" http-msg)
+	   ((equal http-status "200")
 	    (let* ((ss (s-split "\n" (s-trim body)))
 		   (ss (cl-remove-if (lambda(x) (not (s-present? x))) ss))
 		   (json-ss (mapcar (lambda(x) (tabnine-util--read-json x)) ss)))
@@ -496,17 +506,17 @@ text stream."
 ;;
 
 (defun tabnine-chat-explain-code()
-  "TabNine chat explain code."
+  "Explain the selected code."
   (interactive)
   (tabnine-chat--request 'explain-code))
 
 (defun tabnine-chat-generate-test-for-code()
-  "TabNine chat generate test for code."
+  "Write test for the selected code."
   (interactive)
   (tabnine-chat--request 'generate-test-for-code))
 
 (defun tabnine-chat-document-code()
-  "TabNine chat write document code."
+  "Add documentation for the selected code."
   (interactive)
   (tabnine-chat--request 'document-code))
 

@@ -164,10 +164,6 @@ e.g.: http://user:password@127.0.0.1:7890"
   :type 'string)
 
 ;;
-;; Faces
-;;
-
-;;
 ;; Variables
 ;;
 
@@ -538,10 +534,6 @@ REQUEST should be JSON-serializable object."
   (tabnine--request 'configuration))
 
 ;;
-;; Major mode definition
-;;
-
-;;
 ;; Auto completion
 ;;
 
@@ -751,7 +743,6 @@ PROCESS is the process under watch, OUTPUT is the output received."
   (interactive)
   (when (tabnine--overlay-visible-p)
     (tabnine--get-completions-cycling (tabnine--cycle-completion -1))))
-
 
 ;;
 ;; UI
@@ -968,7 +959,6 @@ Use TRANSFORM-FN to transform completion if provided."
 TabNine will not be triggered if any predicate returns t."
   :type '(repeat function)
   :group 'tabnine)
-
 
 (defcustom tabnine-enable-predicates '(evil-insert-state-p tabnine--buffer-changed
 							   tabnine--completion-triggers-p)
