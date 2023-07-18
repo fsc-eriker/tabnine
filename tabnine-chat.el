@@ -123,14 +123,14 @@ all at once. This wait is asynchronous.
 
 (defcustom tabnine-chat-response-filter-functions
   '(tabnine-chat--convert-org)
-  "Abnormal hook for transforming the response from ChatGPT.
+  "Abnormal hook for transforming the response from TabNine Chat.
 
 This is useful if you want to format the response in some way,
 such as filling paragraphs, adding annotations or recording
 information in the response like links.
 
 Each function in this hook receives two arguments, the response
-string to transform and the ChatGPT interaction buffer. It should
+string to transform and the TabNine Chat interaction buffer. It should
 return the transformed string."
   :group 'tabnine
   :type 'hook)
@@ -323,7 +323,7 @@ the response is inserted into the current buffer after point."
       (string-join text-arr))))
 
 (defun tabnine-chat--insert-response (response info)
-  "Insert RESPONSE from ChatGPT into the TabNine Chat buffer.
+  "Insert RESPONSE from TabNine Chat into the TabNine Chat buffer.
 
 INFO is a plist containing information relevant to this buffer.
 See `tabnine-chat--url-get-response' for details."
@@ -391,7 +391,7 @@ hook."
 
 Currently only `org-mode' is handled.
 
-BUFFER is the interaction buffer for ChatGPT."
+BUFFER is the interaction buffer for TabNine Chat."
   (pcase (buffer-local-value 'major-mode buffer)
     ('org-mode (tabnine-chat--convert-markdown->org content))
     (_ content)))

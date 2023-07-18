@@ -185,7 +185,7 @@ PROCESS and _STATUS are process parameters."
     (kill-buffer proc-buf)))
 
 (defun tabnine-chat-curl--stream-insert-response (response info)
-  "Insert streaming RESPONSE from ChatGPT into the TabNine Chat buffer.
+  "Insert streaming RESPONSE from TabNine Chat into the TabNine Chat buffer.
 
 INFO is a mutable plist containing information relevant to this buffer.
 See `tabnine-chat--url-get-response' for details."
@@ -227,10 +227,13 @@ PROCESS is the process under watch, OUTPUT is the output received."
         (save-excursion
           (goto-char (point-min))
           (when-let* (((not (= (line-end-position) (point-max))))
-                      (http-msg (progn
-				  (goto-char (point-min))
-				  (buffer-substring (line-beginning-position)
-						    (line-end-position))))
+		      (http-msg (progn (goto-char (point-min))
+				       (while (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
+					 (forward-line 2))
+				       (string-trim
+					(buffer-substring
+					 (line-beginning-position)
+					 (line-end-position)))))
                       (http-status
 		       (save-match-data
 			 (and (string-match "HTTP/[.0-9]+ +\\([0-9]+\\)" http-msg)
