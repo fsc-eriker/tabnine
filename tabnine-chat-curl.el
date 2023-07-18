@@ -116,10 +116,10 @@ the response is inserted into the current buffer after point."
   (unless tabnine-chat-use-curl
     (user-error "Cannot stop a `url-retrieve' request!"))
   (if-let* ((proc-attrs
-            (cl-find-if
-             (lambda (proc-list)
-               (eq (plist-get (cdr proc-list) :buffer) buffer))
-             tabnine-chat-curl--process-alist))
+             (cl-find-if
+              (lambda (proc-list)
+		(eq (plist-get (cdr proc-list) :buffer) buffer))
+              tabnine-chat-curl--process-alist))
             (proc (car proc-attrs)))
       (progn
         (setf (alist-get proc tabnine-chat-curl--process-alist nil 'remove) nil)
@@ -152,7 +152,7 @@ PROCESS and _STATUS are process parameters."
             (with-current-buffer (marker-buffer start-marker)
               (pulse-momentary-highlight-region (+ start-marker 2) tracking-marker)
               (when tabnine-chat-mode (save-excursion (goto-char tracking-marker)
-                                               (insert "\n\n" (tabnine-chat-prompt-prefix-string)))))
+						      (insert "\n\n" (tabnine-chat-prompt-prefix-string)))))
             (with-current-buffer tabnine-chat-buffer
               (when tabnine-chat-mode (tabnine-chat--update-header-line  " Ready" 'success))))
         ;; ;; Or Capture error message
@@ -193,23 +193,23 @@ See `tabnine-chat--url-get-response' for details."
         (tracking-marker (plist-get info :tracking-marker))
         (transformer (plist-get info :transformer)))
     (when response
-        (with-current-buffer (marker-buffer start-marker)
-          (save-excursion
-            (unless tracking-marker
-              (tabnine-chat--update-header-line " Typing..." 'success)
-              (goto-char start-marker)
-              (unless (or (bobp) (plist-get info :in-place))
-                (insert "\n\n"))
-              (setq tracking-marker (set-marker (make-marker) (point)))
-              (set-marker-insertion-type tracking-marker t)
-              (plist-put info :tracking-marker tracking-marker))
+      (with-current-buffer (marker-buffer start-marker)
+        (save-excursion
+          (unless tracking-marker
+            (tabnine-chat--update-header-line " Typing..." 'success)
+            (goto-char start-marker)
+            (unless (or (bobp) (plist-get info :in-place))
+              (insert "\n\n"))
+            (setq tracking-marker (set-marker (make-marker) (point)))
+            (set-marker-insertion-type tracking-marker t)
+            (plist-put info :tracking-marker tracking-marker))
 
-            (when transformer
-              (setq response (funcall transformer response)))
+          (when transformer
+            (setq response (funcall transformer response)))
 
-            (put-text-property 0 (length response) 'tabnine-chat 'response response)
-            (goto-char tracking-marker)
-            (insert response))))))
+          (put-text-property 0 (length response) 'tabnine-chat 'response response)
+          (goto-char tracking-marker)
+          (insert response))))))
 
 (defun tabnine-chat-curl--stream-filter (process output)
   "Filter for TabNine Chat curl process.
@@ -268,10 +268,10 @@ PROCESS is the process under watch, OUTPUT is the output received."
 							(end-of-line) (point))))
 				       (response (tabnine-util--read-json line-content))
 				       (content (plist-get response :text)))
-			 (push content content-strs))
-		       (forward-line))
-		      (error
-		       (forward-line)))
+			     (push content content-strs))
+			   (forward-line))
+		       (error
+			(forward-line)))
                      (apply #'concat (nreverse content-strs)))
                    proc-info))))))
 
@@ -302,47 +302,56 @@ TOKEN is used to disambiguate multiple requests in a single
 buffer."
   (with-current-buffer buf
     (progn
-      (goto-char (point-max))
-      (search-backward token)
-      (backward-char)
-      (pcase-let* ((`(,_ . ,_) (read (current-buffer))))
-          ;; (if (search-backward token nil t)
-          ;;     (search-forward ")" nil t)
-          ;;   (goto-char (point-min)))
-          (goto-char (point-min))
-
-          (if-let* ((http-msg (progn (goto-char (point-min))
-			      (string-trim
-			       (buffer-substring
-				(line-beginning-position)
-				(line-end-position)))))
-		    (body (progn (goto-char (point-min))
-			  (forward-paragraph)
-			      (decode-coding-string
-			       (buffer-substring-no-properties (point) (point-max))
-			       'utf-8)))
-                    (http-status
-		     (save-match-data
-		       (and (string-match "HTTP/[.0-9]+ +\\([0-9]+\\)" http-msg)
-			    (match-string 1 http-msg)))))
-              (cond
-               ((equal http-status "200")
-		(let* ((ss (s-split "\n" (s-trim body)))
-		       (ss (cl-remove-if (lambda(x) (not (s-present? x))) ss))
-		       (json-ss (mapcar (lambda(x) (tabnine-util--read-json x)) ss)))
-		  (list (tabnine-chat--results-to-text json-ss) http-msg)))
-                ;; ((plist-get response :error)
-                ;;  (let* ((error-plist (plist-get response :error))
-                ;;         (error-msg (plist-get error-plist :message))
-                ;;         (error-type (plist-get error-plist :type)))
-                ;;    (list nil (concat "(" http-msg ") " (string-trim error-type)) error-msg)))
-                ;; ((eq response 'json-read-error)
-                ;;  (list nil (concat "(" http-msg ") Malformed JSON in response.")
-                ;;        "Malformed JSON in response"))
-                (t (list nil (concat "(" http-msg ") Could not parse HTTP response.")
-                         "Could not parse HTTP response.")))
-            (list nil (concat "(" http-msg ") Could not parse HTTP response.")
-                  "Could not parse HTTP response."))))))
+      ;; (if (search-backward token nil t)
+      ;;     (search-forward ")" nil t)
+      ;;   (goto-char (point-min)))
+      (goto-char (point-min))
+      (if-let* ((http-msg (progn (goto-char (point-min))
+				 (while (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
+				   (forward-line 2))
+				 (string-trim
+				  (buffer-substring
+				   (line-beginning-position)
+				   (line-end-position)))))
+		(body (let ((start)
+			    (end))
+			(setq end (save-excursion
+				    (goto-char (point-max))
+				    (search-backward token)
+				    (backward-char)
+				    (point)))
+			(goto-char (point-min))
+			(if (re-search-forward "^\{" nil t)
+			    (setq start (save-excursion (beginning-of-line) (point)))
+			  (setq start (progn (forward-paragraph) (point))))
+			(decode-coding-string
+			 (buffer-substring-no-properties start end) 'utf-8)))
+                (http-status
+		 (save-match-data
+		   (and (string-match "HTTP/[.0-9]+ +\\([0-9]+\\)" http-msg)
+			(match-string 1 http-msg)))))
+          (cond
+	   ((equal http-status "404");; token expired
+	    (message "TabNine token is expired, set tabnine--access-token to nil.")
+	    (setq tabnine--access-token nil))
+           ((equal http-status "200")
+	    (let* ((ss (s-split "\n" (s-trim body)))
+		   (ss (cl-remove-if (lambda(x) (not (s-present? x))) ss))
+		   (json-ss (mapcar (lambda(x) (tabnine-util--read-json x)) ss)))
+	      (list (tabnine-chat--results-to-text json-ss) http-msg)))
+           ;; ((plist-get response :error)
+           ;;  (let* ((error-plist (plist-get response :error))
+           ;;         (error-msg (plist-get error-plist :message))
+           ;;         (error-type (plist-get error-plist :type)))
+           ;;    (list nil (concat "(" http-msg ") " (string-trim error-type)) error-msg)))
+           ;; ((eq response 'json-read-error)
+           ;;  (list nil (concat "(" http-msg ") Malformed JSON in response.")
+           ;;        "Malformed JSON in response"))
+           (t (list nil (concat "(" http-msg ") Could not parse HTTP response.")
+                    "Could not parse HTTP response.")))
+        ;; (list nil (concat "(" http-msg ") Could not parse HTTP response.")
+        ;;       "Could not parse HTTP response.")
+	))))
 
 (provide 'tabnine-chat-curl)
 
