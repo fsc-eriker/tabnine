@@ -178,7 +178,6 @@ to TabNine Chat. Note: this hook runs even if the request fails."
 			  (region-beginning)
 			  (region-end))))
 	;; (selected-code-usages)
-	;; (diagnosticsText)
 	(file-uri (tabnine-util--path-to-uri (buffer-name)))
 	(language (tabnine-util--language-id-buffer))
 	(line-text-at-cursor (buffer-substring-no-properties (save-excursion
@@ -191,7 +190,7 @@ to TabNine Chat. Note: this hook runs even if the request fails."
      :fileCode file-content
      :selectedCode selected-code
      ;; :selectedCodeUsages
-     :diagnosticsText ""
+     :diagnosticsText (tabnine-chat--diagnostics-text)
      :fileUri file-uri
      :language language
      :lineTextAtCursor line-text-at-cursor
@@ -205,7 +204,6 @@ Method can be explain-code, document-code, generate-test-for-code or fix-code."
 			  :text prompt
 			  :by "user"
 			  :editorContext (tabnine-chat--editor-context)
-			  :diagnosticsText (tabnine-chat--diagnostics-text)
 			  ;; :retrievalContext
 			  )))
     (list
@@ -286,7 +284,7 @@ the response is inserted into the current buffer after point."
 (defun tabnine-chat--diagnostics-text()
   "Get diagnostic text with flycheck."
   (let ((errors (tabnine-util--get-list-errors)))
-    (string-join errors)))
+    (string-join errors "\n")))
 
 (defun tabnine-chat--url-parse-response (response-buffer)
   "Parse response in RESPONSE-BUFFER."
