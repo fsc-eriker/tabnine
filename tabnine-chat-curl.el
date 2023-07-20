@@ -151,6 +151,28 @@ PROCESS and _STATUS are process parameters."
            (http-msg (plist-get info :status)))
       (if (equal http-status "200")
           (progn
+	    (with-current-buffer proc-buf
+	      ;; get response messages
+	      (let* ((body (let ((start)
+				 (end))
+			     (setq end (save-excursion
+					 (goto-char (point-max))
+					 (search-backward token nil t)
+					 (backward-char)
+					 (point)))
+			     (save-excursion
+			       (goto-char (point-min))
+			       (if (re-search-forward "^\{" nil t)
+				   (setq start (save-excursion (beginning-of-line) (point)))
+				 (setq start (progn (forward-paragraph) (point)))))
+			     (decode-coding-string
+			      (buffer-substring-no-properties start end) 'utf-8)))
+		     (ss (s-split "\n" (s-trim body)))
+		     (ss (cl-remove-if (lambda(x) (not (s-present? x))) ss))
+		     (json-ss (mapcar (lambda(x) (tabnine-util--read-json x)) ss))
+		     (context (list :id (tabnine-util--random-uuid) :by "chat"  :text (tabnine-chat--results-to-text json-ss))))
+		(tabnine-chat--cached-contexts context)))
+
             ;; Finish handling response
             (with-current-buffer (marker-buffer start-marker)
               (pulse-momentary-highlight-region (+ start-marker 2) tracking-marker)
@@ -164,7 +186,7 @@ PROCESS and _STATUS are process parameters."
 				  (end))
 			      (setq end (save-excursion
 					  (goto-char (point-max))
-					  (search-backward token)
+					  (search-backward token nil t)
 					  (backward-char)
 					  (point)))
 			      (goto-char (point-min))
@@ -269,8 +291,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
         (when (equal http-status "200")
           (funcall (or (plist-get proc-info :callback)
                        #'tabnine-chat-curl--stream-insert-response)
-                   (let* ((json-object-type 'plist)
-                          (content-strs))
+                   (let* ((content-strs))
 		     (condition-case nil
 			 (while (not (eobp))
 			   (when-let* ((line-content (buffer-substring-no-properties
@@ -329,7 +350,7 @@ buffer."
 			    (end))
 			(setq end (save-excursion
 				    (goto-char (point-max))
-				    (search-backward token)
+				    (search-backward token nil t)
 				    (backward-char)
 				    (point)))
 			(goto-char (point-min))

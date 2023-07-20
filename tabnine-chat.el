@@ -52,7 +52,16 @@
 (defconst tabnine-chat--debug-buffer-name "*tabnine-chat-debug*")
 (defconst tabnine-chat--curl-buffer-name "*tabnine-chat-curl*")
 
-(defvar tabnine-chat-default-session "*tabnine-chat*")
+(defvar tabnine-chat-default-session "*tabnine-chat*"
+  "TabNine Chat Default session name.")
+
+(defvar tabnine-chat--cached-contexts nil
+  "TabNine Chat Cached contexts in plist.
+
+Should at least include following keys:
+contexts: cached contexts in array(vector)
+size: size of cached context in bytes
+last-editor-context-hash: last success context hash.")
 
 (defcustom tabnine-chat-default-mode (if (featurep 'markdown-mode)
 					 'markdown-mode
@@ -155,6 +164,19 @@ Used while failed get the last context language buffer."
   :group 'tabnine
   :type 'string)
 
+(defcustom tabnine-chat-max-context-length 100
+  "Maximum number of contexts send to TabNine Chat.
+
+Note that the real entries sended to TabNine is two size of the
+number."
+  :group 'tabnine
+  :type 'integer)
+
+(defcustom tabnine-chat-max-cached-context-size 200
+  "Maximum size of cached messages in KB send to TabNine Chat."
+  :group 'tabnine
+  :type 'float)
+
 ;;
 ;; Variables
 ;;
@@ -174,6 +196,14 @@ Used while failed get the last context language buffer."
   (unless tabnine-chat--conversation-id
     (setq tabnine-chat--conversation-id (tabnine-util--random-uuid)))
   tabnine-chat--conversation-id)
+
+(defun tabnine-chat--context-info(context)
+  "Get CONTEXT's hash."
+  (let ((txt (format "%s%s%s" (or (plist-get context :fileCode) "")
+		 (or (plist-get context :selectedCode) "")
+		 (or (plist-get context :lineTextAtCursor) ""))))
+      (list :hash (md5 txt) :size  (length txt))) ;; 36 is the uuid's length'
+  )
 
 (defun tabnine-chat--editor-context()
   "Return the editor context for the current state."
@@ -205,18 +235,89 @@ Used while failed get the last context language buffer."
   "TabNine api make request with INFO.
 Method can be explain-code, document-code, generate-test-for-code or fix-code."
   (with-current-buffer (or (tabnine-chat--context-buffer) (current-buffer))
-    (let ((context (list
-		  :id (tabnine-util--random-uuid)
-		  :text (plist-get info :prompt)
-		  :by "user"
-		  :editorContext (tabnine-chat--editor-context)
-		  ;; :retrievalContext
-		  )))
-    (list
-     :conversationId (tabnine-chat--get-conversion-id)
-     :messageId (tabnine-util--random-uuid)
-     :input (vector context)
-     :isTelemetryEnabled :json-false))))
+    (let* (;; (cached-entries
+	   ;;  (and tabnine-chat--cached-contexts (plist-get tabnine-chat--cached-contexts :contexts)))
+	   (editor-context (tabnine-chat--editor-context))
+	   (context (list
+		     :id (tabnine-util--random-uuid)
+		     :text (plist-get info :prompt)
+		     :by "user"
+		     ;; :retrievalContext
+		     ))
+	   (contexts (tabnine-chat--cached-contexts context editor-context)))
+      ;; (message "hash is: %s" (plist-get context-info :hash))
+      ;; (if (and tabnine-chat--cached-contexts
+      ;; 	       context-info
+      ;; 	       (plist-get context-info :hash)
+      ;; 	       (plist-get tabnine-chat--cached-contexts :last-editor-context-hash)
+      ;; 	       (equal (plist-get tabnine-chat--cached-contexts :last-editor-context-hash)
+      ;; 		      (plist-get context-info :hash)))
+      ;; 	  (progn
+      ;; 	    (setq contexts (vconcat (plist-get tabnine-chat--cached-contexts :contexts) (vector context)))
+      ;; 	    (plist-put tabnine-chat--cached-contexts :last-editor-context-hash (plist-get context-info :hash))
+      ;; 	    (plist-put tabnine-chat--cached-contexts :size (+ context-size (plist-get tabnine-chat--cached-contexts :size))))
+      ;; 	(setq context-size (+ context-size (plist-get context-info :size)))
+      ;; 	(plist-put info :editor-context-hash (plist-get context-info :hash))
+      ;; 	(plist-put context :editorContext editor-context))
+      ;; (if tabnine-chat--cached-contexts
+      ;;     (progn
+      ;;       (plist-put tabnine-chat--cached-contexts :size (+ context-size (plist-get tabnine-chat--cached-contexts :size)))
+      ;;       (plist-put tabnine-chat--cached-contexts :last-editor-context-hash (plist-get context-info :hash))
+      ;;       (setq contexts (vconcat (plist-get tabnine-chat--cached-contexts :contexts) (vector context)))
+      ;;       (plist-put tabnine-chat--cached-contexts :contexts contexts))
+      ;;   (setq contexts (vector context))
+      ;;   (setq tabnine-chat--cached-contexts (list
+      ;; 				       :contexts contexts
+      ;; 				       :size context-size
+      ;; 				       :last-editor-context-hash (plist-get context-info :hash)))
+      ;;   )
+      (list
+       :conversationId (tabnine-chat--get-conversion-id)
+       :messageId (tabnine-util--random-uuid)
+       :input contexts
+       :isTelemetryEnabled :json-false))))
+
+(defun tabnine-chat--cached-contexts(context &optional editor-context)
+  "Cache TabNine Chat CONTEXT with EDITOR-CONTEXT.
+
+Return contexts result, editor-context nil means result from assist."
+  (let* ((by (plist-get context :by))
+	(context-size (+ (length (plist-get context :id))
+			 (length (plist-get context :text))
+			 (length by)))
+	(context-info)
+	(contexts)
+	(size)
+	(last-editor-context-hash)
+	(hash))
+    (when editor-context
+      (setq context-info (tabnine-chat--context-info editor-context))
+      (setq hash (plist-get context-info :hash)))
+
+    (when tabnine-chat--cached-contexts
+      (setq contexts (plist-get tabnine-chat--cached-contexts :contexts))
+      (setq size (plist-get tabnine-chat--cached-contexts :size))
+      (setq last-editor-context-hash (plist-get tabnine-chat--cached-contexts :last-editor-context-hash)))
+
+    (setq size (+ (or size 0) context-size))
+    (when (and (equal "user" by) (not (and last-editor-context-hash (equal last-editor-context-hash hash))))
+      (plist-put context :editorContext editor-context)
+      (setq size (+ size (plist-get context-info :size)))
+      (setq last-editor-context-hash hash))
+
+    (if contexts
+	(setq contexts (vconcat contexts (vector context)))
+      (setq contexts (vector context)))
+
+    (if tabnine-chat--cached-contexts
+	(progn
+	  (plist-put tabnine-chat--cached-contexts :size size)
+	  (plist-put tabnine-chat--cached-contexts :last-editor-context-hash last-editor-context-hash)
+	  (plist-put tabnine-chat--cached-contexts :contexts contexts))
+      (setq tabnine-chat--cached-contexts (list :size size
+						:contexts contexts
+						:last-editor-context-hash last-editor-context-hash)))
+    contexts))
 
 (defun tabnine-chat--url-get-response (info &optional callback)
   "Fetch response to prompt in INFO from TabNine Chat.
