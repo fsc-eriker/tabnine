@@ -186,7 +186,8 @@ Example of a UUID: 1df63142-a513-c850-31a3-535fc3520c3d."
     `(let ((json-array-type 'vector)
            (json-object-type 'plist)
            (json-false nil))
-       (json-read-from-string ,str))))
+       (condition-case nil (json-read-from-string ,str)
+         (json-readtable-error 'json-read-error)))))
 
 (defun tabnine-util--get-list-errors()
   "Get current buffer error list."

@@ -4,7 +4,7 @@ An unofficial TabNine(with TabNine Chat supported) package for Emacs.
 
 # Screen Recording
 
-- TabNine complete
+- TabNine Complete
 
 ![screenshot-3.gif](./assets/screenshot-3.gif)
 
@@ -125,15 +125,13 @@ If candidate icons of tabnine displayed unnormally [capf icon error](https://git
 
 TabNine Chat is still in BETA - to join the BETA - send `Tabnine Pro` email to `support@tabnine.com` to join BETA test.
 
-| Command                             | Note                                          |
+| Command                             | Prompt                                        |
 | ----------------------------------- | --------------------------------------------- |
 | tabnine-chat-explain-code           | Explain the selected code                     |
 | tabnine-chat-generate-test-for-code | Write tests for the selected code             |
 | tabnine-chat-document-code          | Add documentation for the selected code       |
 | tabnine-chat-fix-code               | Find errors in the selected code and fix them |
 |                                     |                                               |
-
-
 
 ## Default key bindings
 

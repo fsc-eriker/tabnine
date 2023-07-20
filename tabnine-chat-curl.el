@@ -37,6 +37,8 @@
 (require 'tabnine-chat)
 (require 'tabnine-util)
 
+(declare-function tabnine--access-token "tabnine-core")
+
 (eval-when-compile
   (require 'cl-lib)
   (require 'subr-x))
@@ -46,17 +48,17 @@
 (defvar tabnine-chat-curl--process-alist nil
   "Alist of active TabNine Chat curl requests.")
 
-(defun tabnine-chat-curl--get-args (prompt token)
+(defun tabnine-chat-curl--get-args (info token)
   "Produce list of arguments for calling Curl.
 
-PROMPT is the chat prompt to send, TOKEN is a unique identifier.."
-  (let* ((request (tabnine-chat--make-request prompt))
+INFO is the chat info to send, TOKEN is a unique identifier.."
+  (let* ((request (tabnine-chat--make-request info))
 	 (encoded (tabnine-util--json-serialize request))
 	 (data (url-http--encode-string encoded))
 	 (url (format "%s/chat/generate_chat_response" tabnine-api-server))
          (headers
           `(("Content-Type" . "application/json")
-            ("Authorization" . ,(concat "Bearer " (tabnine-chat--get-api-token))))))
+            ("Authorization" . ,(concat "Bearer " (tabnine--access-token))))))
     (append
      (list "--location" "--silent" "--compressed" "--disable"
            (format "-X%s" "POST")
@@ -87,7 +89,7 @@ the response is inserted into the current buffer after point."
   (let* ((token (md5 (format "%s%s%s%s"
                              (random) (emacs-pid) (user-full-name)
                              (recent-keys))))
-	 (args (tabnine-chat-curl--get-args (plist-get info :prompt) token))
+	 (args (tabnine-chat-curl--get-args info token))
          (process (apply #'start-process "tabnine-chat-curl"
                          (generate-new-buffer tabnine-chat--curl-buffer-name) "curl" args)))
     (with-current-buffer (process-buffer process)
@@ -141,6 +143,7 @@ PROCESS and _STATUS are process parameters."
       (with-current-buffer proc-buf
         (clone-buffer tabnine-chat--debug-buffer-name 'show)))
     (let* ((info (alist-get process tabnine-chat-curl--process-alist))
+	   (token (plist-get info :token))
            (tabnine-chat-buffer (plist-get info :buffer))
            (tracking-marker (plist-get info :tracking-marker))
            (start-marker (plist-get info :position))
@@ -155,26 +158,31 @@ PROCESS and _STATUS are process parameters."
 						      (insert "\n\n" (tabnine-chat-prompt-prefix-string)))))
             (with-current-buffer tabnine-chat-buffer
               (when tabnine-chat-mode (tabnine-chat--update-header-line  " Ready" 'success))))
-        ;; ;; Or Capture error message
-        ;; (with-current-buffer proc-buf
-        ;;   (goto-char (point-max))
-        ;;   (search-backward (plist-get info :token))
-        ;;   (backward-char)
-        ;;   (pcase-let* ((`(,_ . ,header-size) (read (current-buffer)))
-        ;;                (json-object-type 'plist)
-        ;;                (response (progn (goto-char header-size)
-        ;;                                 (condition-case nil (json-read)
-        ;;                                   (json-readtable-error 'json-read-error)))))
-        ;;     (cond
-        ;;      ((plist-get response :error)
-        ;;       (let* ((error-plist (plist-get response :error))
-        ;;              (error-msg (plist-get error-plist :message))
-        ;;              (error-type (plist-get error-plist :type)))
-        ;;         (message "TabNine Chat error: (%s) %s" http-msg error-msg)
-        ;;         (setq http-msg (concat "("  http-msg ") " (string-trim error-type)))))
-        ;;      ((eq response 'json-read-error)
-        ;;       (message "TabNine Chat error (%s): Malformed JSON in response." http-msg))
-        ;;      (t (message "TabNine Chat error (%s): Could not parse HTTP response." http-msg)))))
+        ;; Or Capture error message
+        (with-current-buffer proc-buf
+	  (when-let* ((body (let ((start)
+				  (end))
+			      (setq end (save-excursion
+					  (goto-char (point-max))
+					  (search-backward token)
+					  (backward-char)
+					  (point)))
+			      (goto-char (point-min))
+			      (if (re-search-forward "^\{" nil t)
+				  (setq start (save-excursion (beginning-of-line) (point)))
+				(setq start (progn (forward-paragraph) (point))))
+			      (decode-coding-string
+			       (buffer-substring-no-properties start end) 'utf-8)))
+		      (response (tabnine-util--read-json body)))
+	    (cond
+	     ((plist-get response :message)
+	      (let* ((error-msg (plist-get response :message))
+		     (error-stack (plist-get response :stack)))
+		(message "TabNine Chat error: (%s) %s" http-msg error-msg)
+		(setq http-msg (concat "("  http-msg ") " (string-trim error-stack)))))
+	     ((eq response 'json-read-error)
+	      (message "TabNine Chat error (%s): Malformed JSON in response." http-msg))
+	     (t (message "TabNine Chat error (%s): Could not parse HTTP response." http-msg)))))
         (with-current-buffer tabnine-chat-buffer
           (when tabnine-chat-mode
             (tabnine-chat--update-header-line
@@ -230,10 +238,11 @@ PROCESS is the process under watch, OUTPUT is the output received."
 		      (http-msg (progn (goto-char (point-min))
 				       (while (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
 					 (forward-line 2))
+				       (re-search-forward "HTTP/[.0-9]+ +\\([0-9]+\\)" nil t) ;; jump to HTTP status line
 				       (string-trim
-					(buffer-substring
-					 (line-beginning-position)
-					 (line-end-position)))))
+						   (buffer-substring
+						    (line-beginning-position)
+						    (line-end-position)))))
                       (http-status
 		       (save-match-data
 			 (and (string-match "HTTP/[.0-9]+ +\\([0-9]+\\)" http-msg)

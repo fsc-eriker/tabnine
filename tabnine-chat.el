@@ -47,6 +47,7 @@
 (declare-function tabnine-util--path-to-uri "tabnine-util")
 (declare-function tabnine-util--language-id-buffer "tabnine-util")
 (declare-function tabnine-chat-curl-get-response "tabnine-chat-curl")
+(declare-function tabnine--access-token "tabnine-core")
 
 (defconst tabnine-chat--debug-buffer-name "*tabnine-chat-debug*")
 (defconst tabnine-chat--curl-buffer-name "*tabnine-chat-curl*")
@@ -88,7 +89,10 @@ is only inserted in dedicated tabnine chat buffers."
 (define-minor-mode tabnine-chat-mode
   "Minor mode for interacting with TabNine Chat."
   :lighter " TabNine Chat"
-  :keymap (make-sparse-keymap)
+  :keymap
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c RET") #'tabnine-chat-send)
+    map)
   (if tabnine-chat-mode
       (setq tabnine-chat--old-header-line header-line-format
             header-line-format
@@ -144,6 +148,13 @@ to TabNine Chat. Note: this hook runs even if the request fails."
   :group 'tabnine
   :type 'hook)
 
+(defcustom tabnine-chat-default-language "elisp"
+  "Default language for TabNine Chat.
+
+Used while failed get the last context language buffer."
+  :group 'tabnine
+  :type 'string)
+
 ;;
 ;; Variables
 ;;
@@ -157,12 +168,6 @@ to TabNine Chat. Note: this hook runs even if the request fails."
     (document-code ."Add documentation for the selected code")
     (fix-code . "Find errors in the selected code and fix them"))
   "A list of cons cells that map method to TabNine Chat prompt string.")
-
-(defun tabnine-chat--get-api-token()
-  "Get API Token."
-  (unless tabnine--access-token
-    (tabnine-state))
-  tabnine--access-token)
 
 (defun tabnine-chat--get-conversion-id()
   "Get conversion ID."
@@ -192,25 +197,26 @@ to TabNine Chat. Note: this hook runs even if the request fails."
      ;; :selectedCodeUsages
      :diagnosticsText (tabnine-chat--diagnostics-text)
      :fileUri file-uri
-     :language language
+     :language (or language tabnine-chat-default-language)
      :lineTextAtCursor line-text-at-cursor
      :metadata nil)))
 
-(defun tabnine-chat--make-request (prompt)
-  "TabNine api make request with PROMPT.
+(defun tabnine-chat--make-request (info)
+  "TabNine api make request with INFO.
 Method can be explain-code, document-code, generate-test-for-code or fix-code."
-  (let ((context (list
-			  :id (tabnine-util--random-uuid)
-			  :text prompt
-			  :by "user"
-			  :editorContext (tabnine-chat--editor-context)
-			  ;; :retrievalContext
-			  )))
+  (with-current-buffer (or (tabnine-chat--context-buffer) (current-buffer))
+    (let ((context (list
+		  :id (tabnine-util--random-uuid)
+		  :text (plist-get info :prompt)
+		  :by "user"
+		  :editorContext (tabnine-chat--editor-context)
+		  ;; :retrievalContext
+		  )))
     (list
      :conversationId (tabnine-chat--get-conversion-id)
      :messageId (tabnine-util--random-uuid)
      :input (vector context)
-     :isTelemetryEnabled :json-false)))
+     :isTelemetryEnabled :json-false))))
 
 (defun tabnine-chat--url-get-response (info &optional callback)
   "Fetch response to prompt in INFO from TabNine Chat.
@@ -227,8 +233,8 @@ the response is inserted into the current buffer after point."
          (url-request-method "POST")
          (url-request-extra-headers
          `(("Content-Type" . "application/json")
-           ("Authorization" . ,(concat "Bearer " (tabnine-chat--get-api-token)))))
-	 (request (tabnine-chat--make-request (plist-get info :prompt)))
+           ("Authorization" . ,(concat "Bearer " (tabnine--access-token)))))
+	 (request (tabnine-chat--make-request info))
 	 (encoded (tabnine-util--json-serialize request))
 	 (url-request-data (url-http--encode-string encoded)))
     (url-retrieve (format "%s/chat/generate_chat_response" tabnine-api-server)
@@ -262,24 +268,51 @@ the response is inserted into the current buffer after point."
 	(setq buffer (current-buffer))))
     buffer))
 
+(defun tabnine-chat--context-buffer()
+  "Get TabNine Chat Context buffer."
+  (let* ((buffer-list (buffer-list))
+	 (last-prog-buffer)
+	 (current-buffer (current-buffer))
+	 (current-buffer-major-mode (with-current-buffer current-buffer major-mode))
+	 buffer)
+    (dolist (buf buffer-list)
+      (with-current-buffer buf
+	(when (and (tabnine-util--language-id-buffer) (not last-prog-buffer))
+	  (setq last-prog-buffer buf))))
+    (cond
+     ((eq current-buffer-major-mode tabnine-chat-default-mode)
+      (setq buffer last-prog-buffer))
+     (t (setq buffer last-prog-buffer)))
+    buffer))
+
 (defun tabnine-chat--request(method &optional callback)
-    "Make tabnine chat request with METHOD and optional CALLBACK."
-    (let* ((buffer (tabnine-chat--session-buffer))
-	   (info (list :prompt (alist-get method tabnine-chat-prompts-alist)
-		       :buffer buffer
-		       :position (with-current-buffer buffer
-				     (tabnine-chat--update-header-line " Waiting..." 'warning)
-				     (goto-char (point-max))
-				     (skip-chars-backward "\t\r\n")
-				     (insert (alist-get method tabnine-chat-prompts-alist))
-				     (goto-char (point-max))
-				     (point-marker)))))
-      (funcall
-       (if tabnine-chat-use-curl
-	   #'tabnine-chat-curl-get-response #'tabnine-chat--url-get-response)
-       info callback)
-      (unless (eq buffer (current-buffer))
-	(switch-to-buffer buffer))))
+  "Make tabnine chat request with METHOD and optional CALLBACK."
+  (let* ((buffer (tabnine-chat--session-buffer))
+	 (response-pt
+	  (with-current-buffer buffer
+	    (save-excursion
+	      (goto-char (point-max))
+	      (point-marker))))
+	 (prompt-by-method (and method (alist-get method tabnine-chat-prompts-alist)))
+	 (prompt (if prompt-by-method
+		     prompt-by-method
+		   (tabnine-chat--create-prompt response-pt)))
+	 (info (list :prompt prompt
+		     :buffer buffer
+		     :position (with-current-buffer buffer
+				 (tabnine-chat--update-header-line " Waiting..." 'warning)
+				 (goto-char (point-max))
+				 (skip-chars-backward "\t\r\n")
+				 (when (and prompt-by-method (stringp prompt-by-method))
+				   (insert prompt-by-method))
+				 (goto-char (point-max))
+				 (point-marker)))))
+    (funcall
+     (if tabnine-chat-use-curl
+	 #'tabnine-chat-curl-get-response #'tabnine-chat--url-get-response)
+     info callback)
+    (unless (eq buffer (current-buffer))
+      (switch-to-buffer buffer))))
 
 (defun tabnine-chat--diagnostics-text()
   "Get diagnostic text with flycheck."
@@ -319,6 +352,15 @@ the response is inserted into the current buffer after point."
   (when results
     (let ((text-arr (mapcar (lambda(x) (plist-get x :text)) results)))
       (string-join text-arr))))
+
+
+;; TODO: Handle multiple requests(#15). (Only one request from one buffer at a time?)
+;;;###autoload
+(defun tabnine-chat-send ()
+  "Submit this prompt to TabNine Chat."
+  (interactive)
+  (message "Querying TabNine Chat ...")
+  (tabnine-chat--request nil))
 
 (defun tabnine-chat--insert-response (response info)
   "Insert RESPONSE from TabNine Chat into the TabNine Chat buffer.
@@ -364,6 +406,28 @@ See `tabnine-chat--url-get-response' for details."
                  status-str (plist-get info :error)))
       (run-hooks 'tabnine-chat-post-response-hook))))
 
+
+(defun tabnine-chat--create-prompt (&optional prompt-end)
+  "Return a prompt from the contents of this buffer.
+
+If PROMPT-END (a marker) is provided, end the prompt contents
+there."
+  (save-excursion
+    (save-restriction
+      (if (use-region-p)
+          (progn (narrow-to-region (region-beginning) (region-end))
+                 (goto-char (point-max)))
+        (goto-char (or prompt-end (point-max))))
+      (let ((start)
+	    (end (point-max)))
+	(setq start (let ((p (point-min)))
+		      (text-property-search-backward
+		       'tabnine-chat 'response)
+		      (setq p (point)) p))
+	(string-trim
+	 (buffer-substring-no-properties start
+					 end)
+	 "[*# \t\n\r]+")))))
 
 
 ;; TODO: Use `run-hook-wrapped' with an accumulator instead to handle

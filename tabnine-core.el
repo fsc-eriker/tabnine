@@ -163,6 +163,11 @@ e.g.: http://user:password@127.0.0.1:7890"
   :group 'tabnine
   :type 'string)
 
+(defcustom tabnine-access-token-expires-in 2700
+  "TabNine access token expire in seconds."
+  :group 'tabnine
+  :type 'integer)
+
 ;;
 ;; Variables
 ;;
@@ -196,10 +201,19 @@ Resets every time successful completion is returned.")
 
 (defvar tabnine--user nil
   "TabNine user info with plist.
-Key can be: username, access-token and avatar-url.")
+
+Keys at least contains:
+access-token: access token for TabNine API
+username: username in TabNine Hub
+avatar-url: avatar url in TabNine Hub.")
 
 (defvar tabnine--access-token nil
-  "TabNine access token.")
+  "TabNine access token with plist.
+
+Keys at least contains:
+token: token value
+expires-at: token expire at
+at: the token at time.")
 
 (defvar-local tabnine--overlay nil
   "Overlay for TabNine completion.")
@@ -516,13 +530,15 @@ REQUEST should be JSON-serializable object."
 
 (defun tabnine-state ()
   "Query TabNine Service State."
-    (when-let* ((response (tabnine--request 'state))
-		(username (plist-get response :user_name))
-		(access-token (plist-get response :access_token))
-		(avatar-url (plist-get response :user_avatar_url)))
-      (setq tabnine--user (list 'username username 'access-token access-token 'avatar-url avatar-url))
-      (setq tabnine--access-token access-token)
-      response))
+  (when-let* ((response (tabnine--request 'state))
+	      (username (plist-get response :user_name))
+	      (access-token (plist-get response :access_token))
+	      (avatar-url (plist-get response :user_avatar_url))
+	      (curr-time (current-time)))
+    (setq tabnine--access-token
+	  (list :token access-token :at curr-time :expires-at (time-add curr-time tabnine-access-token-expires-in)))
+    (setq tabnine--user (list :username username :access-token tabnine--access-token :avatar-url avatar-url))
+    response))
 
 (defun tabnine-getidentifierregex ()
   "Get identifier regex from TabNine server."
@@ -532,6 +548,20 @@ REQUEST should be JSON-serializable object."
   "Open TabNine Hub page."
   (interactive)
   (tabnine--request 'configuration))
+
+;;
+;; Other helper functions
+;;
+
+(defun tabnine--access-token()
+  "Get API Token.
+
+Refresh token before expire."
+  (unless (and tabnine--access-token
+	       (s-present? (plist-get tabnine--access-token :token))
+	       (> tabnine-access-token-expires-in (float-time (time-since (plist-get tabnine--access-token :at)))))
+    (tabnine-state))
+  (plist-get tabnine--access-token :token))
 
 ;;
 ;; Auto completion
