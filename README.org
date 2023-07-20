@@ -1,0 +1,247 @@
+* tabnine
+
+An unofficial TabNine(with TabNine Chat supported) package for Emacs.
+
+** Screen Recording
+
+- TabNine Complete
+
+ [[file:./assets/screenshot-3.gif]]
+
+- TabNine Chat
+
+ [[file:./assets/screenshot-4.gif]]
+
+** Screenshot
+
+- Snippets displayed with overlay, screenshot:
+
+ [[file:./assets/screenshot-1.png]]
+
+- Classic completions displayed with =completion-at-point-functions= (short for capf) screenshot (corfu)
+
+ [[file:./assets/screenshot-2.png]]
+
+** Installation
+
+@@html:<details>@@@@html:<summary>@@ *Example for manully install* @@html:</summary>@@
+
+- Install =tabnine=.
+
+Clone or download this repository and add to your load path:
+
+#+begin_src elisp
+(add-to-list 'load-path "<path-to-tabnine>")
+(require 'tabnine)
+#+end_src
+
+- Other configurations, eg: enable =tabnine-mode= in =prog-mode=.
+
+#+begin_src elisp
+(with-eval-after-load 'company
+  ;; disable inline previews
+  (delq 'company-preview-if-just-one-frontend company-frontends))
+
+(with-eval-after-load 'tabnine
+  (define-key tabnine-completion-map (kbd "TAB") #'tabnine-accept-completion)
+  (define-key tabnine-completion-map (kbd "<tab>") #'tabnine-accept-completion)
+
+  (define-key tabnine-completion-map (kbd "M-f") #'tabnine-accept-completion-by-word)
+  (define-key tabnine-completion-map (kbd "M-<return>") #'tabnine-accept-completion-by-line)
+
+  (define-key tabnine-completion-map (kbd "C-g") #'tabnine-clear-overlay)
+  (define-key tabnine-completion-map (kbd "M-[") #'tabnine-next-completion)
+  (define-key tabnine-completion-map (kbd "M-]") #'tabnine-previous-completion))
+
+(add-hook 'prog-mode-hook #'tabnine-mode)
+(add-hook 'kill-emacs-hook #'tabnine-kill-process)
+#+end_src
+
+- Run =M-x tabnine-install-binary= to install the TabNine binary for your system.
+@@html:</details>@@
+
+@@html:<details>@@@@html:<summary>@@ *Example for use-package(straight)* @@html:</summary>@@
+
+#+begin_src elisp
+(use-package tabnine
+  :commands (tabnine-start-process)
+  :hook (prog-mode . tabnine-mode)
+  :straight (tabnine :package "tabnine"
+		     :type git
+		     :host github :repo "shuxiao9058/tabnine")
+  :diminish "⌬"
+  :custom
+  (tabnine-wait 1)
+  (tabnine-minimum-prefix-length 0)
+  :hook (kill-emacs . tabnine-kill-process)
+  :config
+  (add-to-list 'completion-at-point-functions #'tabnine-completion-at-point)
+  (tabnine-start-process)
+  :bind
+  (:map  tabnine-completion-map
+	 ("<tab>" . tabnine-accept-completion)
+	 ("TAB" . tabnine-accept-completion)
+	 ("M-f" . tabnine-accept-completion-by-word)
+	 ("M-<return>" . tabnine-accept-completion-by-line)
+	 ("C-g" . tabnine-clear-overlay)
+	 ("M-[" . tabnine-previous-completion)
+	 ("M-]" . tabnine-next-completion)))
+#+end_src
+
+@@html:</details>@@
+
+@@html:<details>@@@@html:<summary>@@ *Example for Doom Emacs* @@html:</summary>@@
+
+- Add package definition to ~/.doom.d/packages.el:
+
+#+begin_src elisp
+(package! tabnine
+  :recipe (:host github :repo "shuxiao9058/tabnine"))
+#+end_src
+
+- Configure tabnine in ~/.doom.d/config.el:
+
+#+begin_src elisp
+(use-package! tabnine
+  :hook ((prog-mode . tabnine-mode)
+	 (kill-emacs . tabnine-kill-process))
+  :config
+  (add-to-list 'completion-at-point-functions #'tabnine-completion-at-point)
+  (tabnine-start-process)
+  :bind
+  (:map  tabnine-completion-map
+	("<tab>" . tabnine-accept-completion)
+	("TAB" . tabnine-accept-completion)
+	("M-f" . tabnine-accept-completion-by-word)
+	("M-<return>" . tabnine-accept-completion-by-line)
+	("C-g" . tabnine-clear-overlay)
+	("M-[" . tabnine-previous-completion)
+	("M-]" . tabnine-next-completion)))
+#+end_src
+
+@@html:</details>@@
+
+@@html:<details>@@@@html:<summary>@@  *Example for Spacemacs* @@html:</summary>@@
+
+Edit your ~/.spacemacs:
+
+#+begin_src elisp
+;; ===================
+;; dotspacemacs/layers
+;; ===================
+
+;; add or uncomment the auto-completion layer
+dotspacemacs-configuration-layers
+'(
+  ...
+  auto-completion
+  ...
+  )
+
+;; add tabnine to additional packages
+dotspacemacs-additional-packages
+'((tabnine :location (recipe
+                      :fetcher github
+                      :repo "shuxiao9058/tabnine")))
+
+;; ========================
+;; dotspacemacs/user-config
+;; ========================
+
+;; accept completion from tabnine and fallback to company
+(with-eval-after-load 'company
+  ;; disable inline previews
+  (delq 'company-preview-if-just-one-frontend company-frontends))
+
+(with-eval-after-load 'tabnine
+  (define-key tabnine-completion-map (kbd "TAB") #'tabnine-accept-completion)
+  (define-key tabnine-completion-map (kbd "<tab>") #'tabnine-accept-completion)
+
+  (define-key tabnine-completion-map (kbd "M-f") #'tabnine-accept-completion-by-word)
+  (define-key tabnine-completion-map (kbd "M-<return>") #'tabnine-accept-completion-by-line)
+
+  (define-key tabnine-completion-map (kbd "C-g") #'tabnine-clear-overlay)
+  (define-key tabnine-completion-map (kbd "M-[") #'tabnine-next-completion)
+  (define-key tabnine-completion-map (kbd "M-]") #'tabnine-previous-completion))
+
+(add-hook 'prog-mode-hook 'tabnine-mode)
+(add-hook 'kill-emacs-hook #'tabnine-kill-process)
+#+end_src
+@@html:</details>@@
+
+** TabNine Chat
+
+TabNine Chat is still in BETA - to join the BETA - send =Tabnine Pro= email to =support@tabnine.com= to join BETA test.
+
+| Command                             | Prompt                                        |
+|-------------------------------------+-----------------------------------------------|
+| tabnine-chat-explain-code           | Explain the selected code                     |
+| tabnine-chat-generate-test-for-code | Write tests for the selected code             |
+| tabnine-chat-document-code          | Add documentation for the selected code       |
+| tabnine-chat-fix-code               | Find errors in the selected code and fix them |
+
+** Customization
+
+*** tabnine-auto-balance
+
+TabNine can automatically balance parentheses, by removing and adding closing parentheses after the cursor. See the examples [[https://github.com/zxqfl/TabNine/blob/master/HowToWriteAClient.md][here]].
+
+
+** Default key bindings
+
+*** tabnine-mode-map
+
+None.
+
+*** tabnine-completion-map
+
+| Key          | Action                            |
+|--------------+-----------------------------------|
+| TAB          | tabnine-accept-completion         |
+| C-g          | tabnine-clear-overlay             |
+| M-f          | tabnine-accept-completion-by-word |
+| M-\<return\> | tabnine-accept-completion-by-line |
+| M-[          | tabnine-previous-completion       |
+| M-]          | tabnine-next-completion           |
+
+*** tabnine-chat-mode-map
+
+| Key     | Action            |
+|---------+-------------------|
+| C-c RET | tabnine-chat-send |
+
+** Known Issues
+
+*** Heavily memory and CPU usage
+
+- TabNine's local deep learning completion might be enabled by default. It is very CPU-intensive if your device can't handle it. You can check by typing "TabNine::config" in any buffer (your browser should then automatically open to TabNine's config page) and disable Deep TabNine Local (you will lose local deep learning completion). More details [[https://www.tabnine.com/blog/tabnine-memory-and-cpu-usage/][here]].
+
+*** ICON displayed error
+
+If candidate icons of tabnine displayed unnormally [[https://github.com/shuxiao9058/tabnine/issues/1][capf icon error]], try set =kind-icon-mapping= for tabnine:
+
+- With all-the-icons
+
+#+begin_src emacs-lisp
+(add-to-list 'kind-icon-mapping '(tabnine "ai" :icon "cloud" :face shadow) t)
+#+end_src
+
+- With all-the-icons-nerd-fonts
+
+#+begin_src emacs-lisp
+(add-to-list 'kind-icon-mapping `(tabnine ,(nerd-icons-codicon "nf-cod-hubot") :face font-lock-warning-face) t)
+#+end_src
+
+** Thanks
+
+Thanks to the great work of [[https://github.com/TommyX12][Tommy Xiang]], [[https://github.com/zerolfx/copilot.el][zerolfx]] and [[https://github.com/karthink][karthink]].
+
+These projects helped me a lot:
+
+https://github.com/TommyX12/company-tabnine
+
+https://github.com/50ways2sayhard/tabnine-capf
+
+https://github.com/zerolfx/copilot.el
+
+https://github.com/karthink/gptel
