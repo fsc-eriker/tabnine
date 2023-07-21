@@ -170,7 +170,7 @@ Example of a UUID: 1df63142-a513-c850-31a3-535fc3520c3d."
 		       :null-object nil
 		       :false-object :json-false)
     `(let ((json-false :json-false))
-       (json-encode ,params))))
+       (json-encode ,params 'utf-8))))
 
 (defmacro tabnine-util--read-json (str)
   "Read JSON string STR.  and return the decoded object."

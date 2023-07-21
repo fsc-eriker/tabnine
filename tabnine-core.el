@@ -889,7 +889,9 @@ Use TRANSFORM-FN to transform completion if provided."
 				    (insert completion)
 				    (goto-char (point-min))
 				    (funcall ,action n)
-				    (buffer-substring-no-properties (point-min) (point)))))))
+				    (decode-coding-string
+				     (buffer-substring-no-properties (point-min) (point))
+				     'utf-8))))))
 
 (tabnine--define-accept-completion-by-action tabnine-accept-completion-by-word #'forward-word)
 (tabnine--define-accept-completion-by-action tabnine-accept-completion-by-line #'forward-line)
