@@ -144,57 +144,28 @@ PROCESS and _STATUS are process parameters."
         (clone-buffer tabnine-chat--debug-buffer-name 'show)))
     (let* ((info (alist-get process tabnine-chat-curl--process-alist))
 	   (proc-token (plist-get info :token))
-           (tabnine-chat-buffer (plist-get info :buffer))
-           (tracking-marker (plist-get info :tracking-marker))
-           (start-marker (plist-get info :position))
-           (http-status (plist-get info :http-status))
-           (http-msg (plist-get info :status)))
-      (if (equal http-status "200")
-          (progn
-	    (pcase-let ((`(,response,_ ,_ ,_)
-			 (tabnine-chat--parse-http-response proc-buf t proc-token)))
-	      (when response
-		(let ((context (list :id (tabnine-util--random-uuid) :by "chat" :text response)))
-		  (tabnine-chat--cached-contexts context))))
+	   (tabnine-chat-buffer (plist-get info :buffer))
+	   (tracking-marker (plist-get info :tracking-marker))
+	   (start-marker (plist-get info :position)))
+      (pcase-let ((`(,response ,http-status ,http-msg ,error)
+		   (tabnine-chat--parse-http-response proc-buf t proc-token)))
+	(if (and response (equal http-status "200"))       ;; Finish handling response
+	    (progn
+	      (let ((context (list :id (tabnine-util--random-uuid) :by "chat" :text response)))
+		(tabnine-chat--cached-contexts context))
+              (with-current-buffer (marker-buffer start-marker)
+		(pulse-momentary-highlight-region (+ start-marker 2) tracking-marker)
+		(when tabnine-chat-mode (save-excursion (goto-char tracking-marker)
+							(insert "\n\n" (tabnine-chat-prompt-prefix-string)))))
+              (with-current-buffer tabnine-chat-buffer
+		(when tabnine-chat-mode (tabnine-chat--update-header-line  " Ready" 'success))))
 
-            ;; Finish handling response
-            (with-current-buffer (marker-buffer start-marker)
-              (pulse-momentary-highlight-region (+ start-marker 2) tracking-marker)
-              (when tabnine-chat-mode (save-excursion (goto-char tracking-marker)
-						      (insert "\n\n" (tabnine-chat-prompt-prefix-string)))))
-            (with-current-buffer tabnine-chat-buffer
-              (when tabnine-chat-mode (tabnine-chat--update-header-line  " Ready" 'success))))
-        ;; Or Capture error message
-        (with-current-buffer proc-buf
-	  (when-let* ((body (let ((start)
-				  (end))
-			      (setq end (save-excursion
-					  (goto-char (point-max))
-					  (search-backward proc-token nil t)
-					  (backward-char)
-					  (point)))
-			      (goto-char (point-min))
-			      (if (re-search-forward "^\{" nil t)
-				  (setq start (save-excursion (beginning-of-line) (point)))
-				(setq start (progn (forward-paragraph) (point))))
-			      (decode-coding-string
-			       (buffer-substring-no-properties start end) 'utf-8)))
-		      (response (tabnine-util--read-json body)))
-	    (cond
-	     ((plist-get response :message)
-	      (let* ((error-msg (plist-get response :message))
-		     (error-stack (plist-get response :stack)))
-		(message "TabNine Chat error: (%s) %s" http-msg error-msg)
-		(setq http-msg (concat "("  http-msg ") " (string-trim error-stack)))))
-	     ((eq response 'json-error)
-	      (message "TabNine Chat error (%s): Malformed JSON in response." http-msg))
-	     (t (message "TabNine Chat error (%s): Could not parse HTTP response." http-msg)))))
-        (with-current-buffer tabnine-chat-buffer
-          (when tabnine-chat-mode
-            (tabnine-chat--update-header-line
-             (format " Response Error: %s" http-msg) 'error))))
-      (with-current-buffer tabnine-chat-buffer
-        (run-hooks 'tabnine-chat-post-response-hook)))
+	  (with-current-buffer tabnine-chat-buffer
+            (when tabnine-chat-mode
+              (tabnine-chat--update-header-line
+               (format " Response Error: %s" (or error http-msg)) 'error))))
+	(with-current-buffer tabnine-chat-buffer
+          (run-hooks 'tabnine-chat-post-response-hook))))
     (setf (alist-get process tabnine-chat-curl--process-alist nil 'remove) nil)
     (kill-buffer proc-buf)))
 
@@ -239,7 +210,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
       ;; Find HTTP status
       (unless (plist-get proc-info :http-status)
 	(pcase-let ((`(,_ ,http-status ,http-msg ,_ )
-                   (tabnine-chat--parse-http-response (process-buffer process) nil)))
+                     (tabnine-chat--parse-http-response (process-buffer process) nil)))
 	  (when http-status
 	    (plist-put proc-info :http-status http-status)
 	    (plist-put proc-info :status (string-trim http-msg))))

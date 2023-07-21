@@ -649,21 +649,23 @@ PROCESS is the process under watch, OUTPUT is the output received."
   (let* ((response
 	  (mapconcat #'identity
 		     (nreverse tabnine--response-chunks) nil))
-         (ss (s-split "\n" (s-trim response)))
+         (ss (nreverse (s-split "\n" (s-trim response))))
          str
 	 result)
 
-    (when (and ss (> (length ss) 0))
+    (while (and ss (> (length ss) 0)
+		(or (not result) (equal result 'json-error)))
       (setq tabnine--response-chunks nil)
       (setq str (car ss))
       (when (s-present? str)
         (setq result (tabnine-util--read-json str))
-        (setq ss (cdr ss))
-	(setq tabnine--response result)
-	(when (and result (tabnine--valid-response-p result))
-          (setq tabnine--completion-cache-result result)
-	  (when (equal (point) tabnine--trigger-point)
-	    (tabnine--show-completion-1 result)))))))
+	(unless (equal result 'json-error)
+	  (setq tabnine--response result)
+	  (when (and result (tabnine--valid-response-p result))
+            (setq tabnine--completion-cache-result result)
+	    (when (equal (point) tabnine--trigger-point)
+	      (tabnine--show-completion-1 result)))))
+      (setq ss (cdr ss)))))
 
 ;;
 ;; Interactive functions

@@ -485,7 +485,8 @@ Return body, http-status, http-msg and error in list."
 	    (list body http-status http-msg)))
          ((equal http-status "404");; token expired
 	  (message "TabNine token is expired, set tabnine--access-token to nil.")
-	  (setq tabnine--access-token nil))
+	  (setq tabnine--access-token nil)
+	  (list body http-status http-msg "TabNine token expired"))
 	 (t (unless (progn (goto-char (point-min))
 			   (when (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
 			     (string-trim
