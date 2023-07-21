@@ -186,7 +186,7 @@ PROCESS and _STATUS are process parameters."
 		     (error-stack (plist-get response :stack)))
 		(message "TabNine Chat error: (%s) %s" http-msg error-msg)
 		(setq http-msg (concat "("  http-msg ") " (string-trim error-stack)))))
-	     ((eq response 'json-read-error)
+	     ((eq response 'json-error)
 	      (message "TabNine Chat error (%s): Malformed JSON in response." http-msg))
 	     (t (message "TabNine Chat error (%s): Could not parse HTTP response." http-msg)))))
         (with-current-buffer tabnine-chat-buffer
@@ -266,11 +266,10 @@ PROCESS is the process under watch, OUTPUT is the output received."
                        #'tabnine-chat-curl--stream-insert-response)
                    (let* ((content-strs))
 		     (condition-case nil
-			 (while (not (eobp))
+			 (while (re-search-forward "^\{" nil t)
 			   (when-let* ((line-content (decode-coding-string
 						      (buffer-substring-no-properties
-						       (save-excursion
-							 (beginning-of-line) (point))
+						       (line-beginning-position)
 						       (save-excursion
 							 (end-of-line) (point)))
 						      'utf-8) )
@@ -302,64 +301,6 @@ PROCESS and _STATUS are process parameters."
         (funcall proc-callback response proc-info)))
     (setf (alist-get process tabnine-chat-curl--process-alist nil 'remove) nil)
     (kill-buffer proc-buf)))
-
-(defun tabnine-chat-curl--parse-response (buf token)
-  "Parse the buffer BUF with curl's response.
-
-TOKEN is used to disambiguate multiple requests in a single
-buffer."
-  (with-current-buffer buf
-    (progn
-      ;; (if (search-backward token nil t)
-      ;;     (search-forward ")" nil t)
-      ;;   (goto-char (point-min)))
-      (goto-char (point-min))
-      (if-let* ((http-msg (progn (goto-char (point-min))
-				 (while (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
-				   (forward-line 2))
-				 (string-trim
-				  (buffer-substring
-				   (line-beginning-position)
-				   (line-end-position)))))
-		(body (let ((start)
-			    (end))
-			(setq end (save-excursion
-				    (goto-char (point-max))
-				    (search-backward token nil t)
-				    (backward-char)
-				    (point)))
-			(goto-char (point-min))
-			(if (re-search-forward "^\{" nil t)
-			    (setq start (save-excursion (beginning-of-line) (point)))
-			  (setq start (progn (forward-paragraph) (point))))
-			(decode-coding-string
-			 (buffer-substring-no-properties start end) 'utf-8)))
-                (http-status
-		 (save-match-data
-		   (and (string-match "HTTP/[.0-9]+ +\\([0-9]+\\)" http-msg)
-			(match-string 1 http-msg)))))
-          (cond
-	   ((equal http-status "404");; token expired
-	    (message "TabNine token is expired, set tabnine--access-token to nil.")
-	    (setq tabnine--access-token nil))
-           ((equal http-status "200")
-	    (let* ((ss (s-split "\n" (s-trim body)))
-		   (ss (cl-remove-if (lambda(x) (not (s-present? x))) ss))
-		   (json-ss (mapcar (lambda(x) (tabnine-util--read-json x)) ss)))
-	      (list (tabnine-chat--results-to-text json-ss) http-msg)))
-           ;; ((plist-get response :error)
-           ;;  (let* ((error-plist (plist-get response :error))
-           ;;         (error-msg (plist-get error-plist :message))
-           ;;         (error-type (plist-get error-plist :type)))
-           ;;    (list nil (concat "(" http-msg ") " (string-trim error-type)) error-msg)))
-           ;; ((eq response 'json-read-error)
-           ;;  (list nil (concat "(" http-msg ") Malformed JSON in response.")
-           ;;        "Malformed JSON in response"))
-           (t (list nil (concat "(" http-msg ") Could not parse HTTP response.")
-                    "Could not parse HTTP response.")))
-        ;; (list nil (concat "(" http-msg ") Could not parse HTTP response.")
-        ;;       "Could not parse HTTP response.")
-	))))
 
 (provide 'tabnine-chat-curl)
 

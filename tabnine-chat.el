@@ -192,7 +192,7 @@ Default 1MB."
     (fix-code . "Find errors in the selected code and fix them"))
   "A list of cons cells that map method to TabNine Chat prompt string.")
 
-(defun tabnine-chat--get-conversion-id()
+(defun tabnine-chat--conversion-id()
   "Get conversion ID."
   (unless tabnine-chat--conversation-id
     (setq tabnine-chat--conversation-id (tabnine-util--random-uuid)))
@@ -248,7 +248,7 @@ Method can be explain-code, document-code, generate-test-for-code or fix-code."
 		     :by "user"))
 	   (contexts (tabnine-chat--cached-contexts context editor-context)))
       (list
-       :conversationId (tabnine-chat--get-conversion-id)
+       :conversationId (tabnine-chat--conversion-id)
        :messageId (tabnine-util--random-uuid)
        :input contexts
        :isTelemetryEnabled :json-false))))
@@ -486,7 +486,12 @@ Return body, http-status, http-msg and error in list."
          ((equal http-status "404");; token expired
 	  (message "TabNine token is expired, set tabnine--access-token to nil.")
 	  (setq tabnine--access-token nil))
-	 (t (unless (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
+	 (t (unless (progn (goto-char (point-min))
+			   (when (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
+			     (string-trim
+			       (buffer-substring
+				(line-beginning-position)
+				(line-end-position)))))
 	      (message "Unknow error: %s, buffer text: %s" http-msg (buffer-string)))
 	    (list body http-status http-msg "unknow error")))))))
 
