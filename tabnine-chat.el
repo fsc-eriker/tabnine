@@ -453,15 +453,17 @@ TOKEN is used to disambiguate multiple requests in a single buffer.
 Return body, http-status, http-msg and error in list."
   (when (buffer-live-p response-buffer)
     (with-current-buffer response-buffer
-      (let* ((http-msg (progn (goto-char (point-min))
-			      (while (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
-				(forward-line 2))
-			      (re-search-forward "HTTP/[.0-9]+ +[0-9]+" nil t) ;; jump to HTTP status line
-			      (string-trim
-			       (buffer-substring
-				(line-beginning-position)
-				(line-end-position)))))
+      (let* ((http-msg (save-excursion
+			 (goto-char (point-min))
+			 (while (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
+			   (forward-line 2))
+			 (re-search-forward "HTTP/[.0-9]+ +[0-9]+" nil t) ;; jump to HTTP status line
+			 (string-trim
+			  (buffer-substring
+			   (line-beginning-position)
+			   (line-end-position)))))
 	     (start (save-excursion
+		      (goto-char (point-min))
 		      (if (re-search-forward "^\{" nil t)
 			  (line-beginning-position)
 			(forward-paragraph)
@@ -505,9 +507,9 @@ Return body, http-status, http-msg and error in list."
 	 (t (unless (progn (goto-char (point-min))
 			   (when (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
 			     (string-trim
-			       (buffer-substring
-				(line-beginning-position)
-				(line-end-position)))))
+			      (buffer-substring
+			       (line-beginning-position)
+			       (line-end-position)))))
 	      (message "Unknow error: %s, buffer text: %s" http-msg (buffer-string)))
 	    (list body http-status http-msg "unknow error")))))))
 
