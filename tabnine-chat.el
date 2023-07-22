@@ -178,6 +178,27 @@ Default 1MB."
   :group 'tabnine
   :type 'float)
 
+(defcustom tabnine-chat-prompt-alist '((explain-code . "Explain the selected code")
+				       (generate-test-for-code . "Write tests for the selected code")
+				       (document-code . "Add documentation for the selected code")
+				       (fix-code . "Find errors in the selected code and fix them"))
+  "Alist of cons cells that map method to TabNine Chat prompt string.
+Valid match type keys are:
+- explain-code
+- generate-test-for-code
+- document-code
+- fix-code
+
+The other element of each cons pair in this list is the prompt string to
+use for TabNine Chat."
+  :group 'tabnine
+  :type '(repeat (cons (choice :tag "Key"
+			       (const explain-code)
+			       (const generate-test-for-code)
+			       (const document-code)
+			       (const fix-code))
+		       (string :tag "Prompt String"))))
+
 ;;
 ;; Variables
 ;;
@@ -185,12 +206,6 @@ Default 1MB."
 (defvar tabnine-chat--conversation-id nil
   "The TabNine chat conversation id.")
 
-(defvar tabnine-chat-prompts-alist
-  '((explain-code . "Explain the selected code")
-    (generate-test-for-code . "Write tests for the selected code")
-    (document-code ."Add documentation for the selected code")
-    (fix-code . "Find errors in the selected code and fix them"))
-  "A list of cons cells that map method to TabNine Chat prompt string.")
 
 (defun tabnine-chat--conversion-id()
   "Get conversion ID."
@@ -403,7 +418,7 @@ the response is inserted into the current buffer after point."
 	    (save-excursion
 	      (goto-char (point-max))
 	      (point-marker))))
-	 (prompt-by-method (and method (alist-get method tabnine-chat-prompts-alist)))
+	 (prompt-by-method (and method (alist-get method tabnine-chat-prompt-alist)))
 	 (prompt (if prompt-by-method
 		     prompt-by-method
 		   (tabnine-chat--create-prompt response-pt)))

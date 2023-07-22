@@ -1182,7 +1182,7 @@ command that triggered `post-command-hook'."
   (let ((completions (mapcar construct-candidate-fn results)))
     completions))
 
-(defun tabnine--get-candidates (response)
+(defun tabnine--candidates (response)
   "Get candidates for RESPONSE."
   (when (tabnine--response-display-with-capf-p response)
     (let ((candidates (tabnine--construct-candidates
@@ -1219,7 +1219,7 @@ command that triggered `post-command-hook'."
 	 (start        (or (car bounds) pt))
 	 (end          (or (cdr bounds) pt))
 	 (response tabnine--completion-cache-result)
-	 (candidates  (let* ((candidates (tabnine--get-candidates response)))
+	 (candidates  (let* ((candidates (tabnine--candidates response)))
 			(when (tabnine--response-display-with-capf-p response)
 			  candidates)))
 	 (get-candidates (lambda () candidates)))
