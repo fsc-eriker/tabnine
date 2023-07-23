@@ -1,4 +1,4 @@
-;;; tabnine.el --- An unofficial TabNine package ;; -*- lexical-binding: t -*-
+;;; tabnine.el --- An unofficial TabNine package -*- lexical-binding: t -*-
 ;;
 ;; Copyright (c) 2023  Aaron Ji, Tommy Xiang, John Gong
 ;;
@@ -56,6 +56,7 @@
 
 (require 'tabnine-core)
 (require 'tabnine-chat)
+(require 'tabnine-chat-transient)
 
 (provide 'tabnine)
 

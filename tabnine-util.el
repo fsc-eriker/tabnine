@@ -212,6 +212,32 @@ Example of a UUID: 1df63142-a513-c850-31a3-535fc3520c3d."
 			  message))
 		    message))) flycheck-current-errors)))
 
+(defun tabnine-util--markdown-codeblocks (text)
+  "Get codeblocks from markdown TEXT.
+
+Return codeblocks in squence."
+  (with-temp-buffer
+    (insert text)
+    (goto-char (point-min))
+
+    (let ((codeblocks))
+      (while (and (re-search-forward "```\\(.+\\)?" nil t) (not (eobp)))
+	(let ((code)
+	      (lang (match-string 1))
+	      (start)
+	      (end))
+	  (forward-line)
+	  (setq start (line-beginning-position))
+	  (when (re-search-forward "```" nil t)
+		(setq end (save-excursion (forward-line -1) (line-end-position)))
+		(setq code (list :code (decode-coding-string
+				    (buffer-substring-no-properties start end)
+				    'utf-8)
+				 :lang lang))
+		(setq codeblocks (vconcat codeblocks (vector code))))
+	  (goto-char (save-excursion (forward-line) (line-beginning-position)))))
+      codeblocks)))
+
 (provide 'tabnine-util)
 
 ;;; tabnine-util.el ends here

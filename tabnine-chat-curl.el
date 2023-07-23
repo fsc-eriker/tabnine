@@ -113,7 +113,7 @@ the response is inserted into the current buffer after point."
         (set-process-sentinel process #'tabnine-chat-curl--sentinel)))))
 
 (defun tabnine-chat-abort (buffer)
-  "Stop any active tabnine-chat process associated with the current BUFFER."
+  "Stop any active `tabnine-chat' process associated with the current BUFFER."
   (interactive (list (current-buffer)))
   (unless tabnine-chat-use-curl
     (user-error "Cannot stop a `url-retrieve' request!"))
@@ -199,7 +199,8 @@ See `tabnine-chat--url-get-response' for details."
 (defun tabnine-chat-curl--stream-filter (process output)
   "Filter for TabNine Chat curl process.
 PROCESS is the process under watch, OUTPUT is the output received."
-  (let* ((proc-info (alist-get process tabnine-chat-curl--process-alist)))
+  (let* ((proc-info (alist-get process tabnine-chat-curl--process-alist))
+	 (proc-token (plist-get proc-info :token)))
     (with-current-buffer (process-buffer process)
       ;; Insert output
       (save-excursion
@@ -210,7 +211,7 @@ PROCESS is the process under watch, OUTPUT is the output received."
       ;; Find HTTP status
       (unless (plist-get proc-info :http-status)
 	(pcase-let ((`(,_ ,http-status ,http-msg ,_ )
-                     (tabnine-chat--parse-http-response (process-buffer process) nil)))
+                     (tabnine-chat--parse-http-response (process-buffer process) nil proc-token)))
 	  (when http-status
 	    (plist-put proc-info :http-status http-status)
 	    (plist-put proc-info :status (string-trim http-msg))))
