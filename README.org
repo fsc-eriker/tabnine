@@ -1,28 +1,32 @@
-* tabnine
+#+title: TabNine
+
+[[https://melpa.org/#/tabnine][file:https://melpa.org/packages/tabnine-badge.svg]]  [[https://github.com/shuxiao9058/tabnine/actions/workflows/melpazoid.yml][https://github.com/shuxiao9058/tabnine/actions/workflows/melpazoid.yml/badge.svg]]
 
 An unofficial TabNine(with TabNine Chat supported) package for Emacs.
 
-** Screen Recording
+* Screen Recording
 
-- TabNine Complete
-
+@@html:<details>@@@@html:<summary>@@ *TabNine Complete* @@html:</summary>@@
  [[file:./assets/screenshot-3.gif]]
+@@html:</details>@@
 
-- TabNine Chat
-
+@@html:<details>@@@@html:<summary>@@ *TabNine Chat* @@html:</summary>@@
  [[file:./assets/screenshot-4.gif]]
+@@html:</details>@@
 
-** Screenshot
+* Screenshot
 
-- Snippets displayed with overlay, screenshot:
-
+@@html:<details>@@@@html:<summary>@@ *Snippets displayed with overlay* @@html:</summary>@@
  [[file:./assets/screenshot-1.png]]
+@@html:</details>@@
 
-- Classic completions displayed with =completion-at-point-functions= (short for capf) screenshot (corfu)
-
+@@html:<details>@@@@html:<summary>@@ *Classic completions displayed with capf* @@html:</summary>@@
  [[file:./assets/screenshot-2.png]]
+@@html:</details>@@
 
-** Installation
+* Installation
+
+TabNine is available on [[https://melpa.org/#/tabnine][Melpa]], you can install it with your favorite package manager.
 
 @@html:<details>@@@@html:<summary>@@ *Example for manully install* @@html:</summary>@@
 
@@ -180,20 +184,20 @@ TabNine Chat is still in BETA - to join the BETA - send =Tabnine Pro= email to =
 | tabnine-chat-document-code          | Add documentation for the selected code       |
 | tabnine-chat-fix-code               | Find errors in the selected code and fix them |
 
-** Customization
+* Customization
 
-*** tabnine-auto-balance
+** tabnine-auto-balance
 
 TabNine can automatically balance parentheses, by removing and adding closing parentheses after the cursor. See the examples [[https://github.com/zxqfl/TabNine/blob/master/HowToWriteAClient.md][here]].
 
 
-** Default key bindings
+* Default key bindings
 
-*** tabnine-mode-map
+** tabnine-mode-map
 
 None.
 
-*** tabnine-completion-map
+** tabnine-completion-map
 
 | Key          | Action                            |
 |--------------+-----------------------------------|
@@ -204,19 +208,19 @@ None.
 | M-[          | tabnine-previous-completion       |
 | M-]          | tabnine-next-completion           |
 
-*** tabnine-chat-mode-map
+** tabnine-chat-mode-map
 
 | Key     | Action            |
 |---------+-------------------|
 | C-c RET | tabnine-chat-send |
 
-** Known Issues
+* Known Issues
 
-*** Heavily memory and CPU usage
+** Heavily memory and CPU usage
 
 - TabNine's local deep learning completion might be enabled by default. It is very CPU-intensive if your device can't handle it. You can check by typing "TabNine::config" in any buffer (your browser should then automatically open to TabNine's config page) and disable Deep TabNine Local (you will lose local deep learning completion). More details [[https://www.tabnine.com/blog/tabnine-memory-and-cpu-usage/][here]].
 
-*** ICON displayed error
+** ICON displayed error
 
 If candidate icons of tabnine displayed unnormally [[https://github.com/shuxiao9058/tabnine/issues/1][capf icon error]], try set =kind-icon-mapping= for tabnine:
 
@@ -232,7 +236,7 @@ If candidate icons of tabnine displayed unnormally [[https://github.com/shuxiao9
 (add-to-list 'kind-icon-mapping `(tabnine ,(nerd-icons-codicon "nf-cod-hubot") :face font-lock-warning-face) t)
 #+end_src
 
-** Thanks
+* Thanks
 
 Thanks to the great work of [[https://github.com/TommyX12][Tommy Xiang]], [[https://github.com/zerolfx/copilot.el][zerolfx]] and [[https://github.com/karthink][karthink]].
 

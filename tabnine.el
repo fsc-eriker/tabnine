@@ -1,4 +1,4 @@
-;;; tabnine.el --- An unofficial TabNine package -*- lexical-binding: t -*-
+;;; tabnine.el --- An unofficial TabNine package with TabNine Chat supported -*- lexical-binding: t -*-
 ;;
 ;; Copyright (c) 2023  Aaron Ji, Tommy Xiang, John Gong
 ;;
@@ -9,7 +9,7 @@
 ;; Keywords: convenience
 ;; Version: 0.0.1
 ;; URL: https://github.com/shuxiao9058/tabnine/
-;; Package-Requires: ((emacs "28.1") (dash "2.16.0") (s "1.12.0") (editorconfig "0.9.1") (vterm "0.0.2") (language-id "0.5.1"))
+;; Package-Requires: ((emacs "28.1") (dash "2.16.0") (s "1.12.0") (editorconfig "0.9.1") (vterm "0.0.2") (language-id "0.5.1") (transient "0.4.0"))
 ;;
 ;; Permission is hereby granted, free of charge, to any person obtaining a copy
 ;; of this software and associated documentation files (the "Software"), to deal
@@ -33,7 +33,7 @@
 ;;
 ;; Description:
 ;;
-;; An unofficial TabNine package for Emacs.
+;; An unofficial TabNine package with TabNine Chat supported.
 ;;
 ;; Installation:
 ;;
