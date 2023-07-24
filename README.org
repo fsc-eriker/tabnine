@@ -204,7 +204,7 @@ None.
 | TAB          | tabnine-accept-completion         |
 | C-g          | tabnine-clear-overlay             |
 | M-f          | tabnine-accept-completion-by-word |
-| M-\<return\> | tabnine-accept-completion-by-line |
+| M-<return>   | tabnine-accept-completion-by-line |
 | M-[          | tabnine-previous-completion       |
 | M-]          | tabnine-next-completion           |
 

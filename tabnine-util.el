@@ -219,23 +219,15 @@ Return codeblocks in squence."
   (with-temp-buffer
     (insert text)
     (goto-char (point-min))
-
-    (let ((codeblocks))
-      (while (and (re-search-forward "```\\(.+\\)?" nil t) (not (eobp)))
-	(let ((code)
-	      (lang (match-string 1))
-	      (start)
-	      (end))
-	  (forward-line)
-	  (setq start (line-beginning-position))
-	  (when (re-search-forward "```" nil t)
-		(setq end (save-excursion (forward-line -1) (line-end-position)))
-		(setq code (list :code (decode-coding-string
-				    (buffer-substring-no-properties start end)
-				    'utf-8)
-				 :lang lang))
-		(setq codeblocks (vconcat codeblocks (vector code))))
-	  (goto-char (save-excursion (forward-line) (line-beginning-position)))))
+    (let ((codeblocks)
+	  (code)
+	  (lang))
+      (while (re-search-forward
+	      "```\\(.+\\)?\\([. \n\r\s\t[:word:][:space:][:multibyte:][:digit:][:punct:]_]+?\\)```" nil t)
+	(setq lang (match-string 1))
+	(setq code (list :code (match-string 2)
+			 :lang lang))
+	(setq codeblocks (vconcat codeblocks (vector code))))
       codeblocks)))
 
 (provide 'tabnine-util)
