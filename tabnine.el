@@ -31,8 +31,6 @@
 ;;
 ;;; Commentary:
 ;;
-;; Description:
-;;
 ;; An unofficial TabNine package with TabNine Chat supported.
 ;;
 ;; Installation:

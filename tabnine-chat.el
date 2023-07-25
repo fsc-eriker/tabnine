@@ -163,11 +163,8 @@ Used while failed get the last context language buffer."
   :group 'tabnine
   :type 'string)
 
-(defcustom tabnine-chat-max-context-length 100
-  "Maximum number of contexts send to TabNine Chat.
-
-Note that the real entries sended to TabNine is two size of the
-number."
+(defcustom tabnine-chat-max-context-length 400
+  "Maximum number of contexts send to TabNine Chat."
   :group 'tabnine
   :type 'integer)
 
@@ -614,7 +611,8 @@ Return body, http-status, http-msg and error in list."
   "Submit this prompt to TabNine Chat."
   (interactive)
   (message "Querying TabNine Chat ...")
-  (tabnine-chat--request nil))
+  (tabnine-chat--request nil
+     :stream tabnine-chat-stream))
 
 (defun tabnine-chat--insert-response (response info)
   "Insert RESPONSE from TabNine Chat into the TabNine Chat buffer.

@@ -215,7 +215,10 @@ Example of a UUID: 1df63142-a513-c850-31a3-535fc3520c3d."
 (defun tabnine-util--markdown-codeblocks (text)
   "Get codeblocks from markdown TEXT.
 
-Return codeblocks in squence."
+Return codeblocks in sequence.
+CodeBlock contains at least these keys:
+code: code content in string
+lang: language of code."
   (with-temp-buffer
     (insert text)
     (goto-char (point-min))
