@@ -249,3 +249,7 @@ https://github.com/50ways2sayhard/tabnine-capf
 https://github.com/zerolfx/copilot.el
 
 https://github.com/karthink/gptel
+
+* License
+
+Licensed under GPLv3.
