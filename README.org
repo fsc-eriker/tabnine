@@ -70,9 +70,7 @@ Clone or download this repository and add to your load path:
 (use-package tabnine
   :commands (tabnine-start-process)
   :hook (prog-mode . tabnine-mode)
-  :straight (tabnine :package "tabnine"
-		     :type git
-		     :host github :repo "shuxiao9058/tabnine")
+  :straight t
   :diminish "⌬"
   :custom
   (tabnine-wait 1)
@@ -99,8 +97,7 @@ Clone or download this repository and add to your load path:
 - Add package definition to ~/.doom.d/packages.el:
 
 #+begin_src elisp
-(package! tabnine
-  :recipe (:host github :repo "shuxiao9058/tabnine"))
+(package! tabnine)
 #+end_src
 
 - Configure tabnine in ~/.doom.d/config.el:
@@ -144,9 +141,7 @@ dotspacemacs-configuration-layers
 
 ;; add tabnine to additional packages
 dotspacemacs-additional-packages
-'((tabnine :location (recipe
-                      :fetcher github
-                      :repo "shuxiao9058/tabnine")))
+'((tabnine))
 
 ;; ========================
 ;; dotspacemacs/user-config
