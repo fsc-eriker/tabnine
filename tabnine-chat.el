@@ -209,6 +209,10 @@ use for TabNine Chat."
     (setq tabnine-chat--conversation-id (tabnine-util--random-uuid)))
   tabnine-chat--conversation-id)
 
+(defun tabnine-chat--error-no-chat-feature ()
+  "Signal user error while TabNine Chat feature not available."
+  (user-error "TabNine Chat feature is NOT available yet, please send Tabnine Pro email to support@tabnine.com to join BETA"))
+
 (defun tabnine-chat--context-info(context)
   "Get CONTEXT's hash."
   (let ((txt (format "%s%s%s" (or (plist-get context :fileCode) "")
@@ -463,6 +467,10 @@ prompt and the response.
 STREAM is a boolean that determines if the response should be
 streamed, as in `tabnine-chat-stream'. Do not set this if you are
 specifying a custom CALLBACK!"
+  (unless tabnine--chat-enabled
+    (tabnine-capabilities))
+  (unless tabnine--chat-enabled
+    (tabnine-chat--error-no-chat-feature))
   (let* ((tabnine-chat-stream stream)
 	 (start-marker
           (cond
@@ -585,9 +593,11 @@ Return body, http-status, http-msg and error in list."
 		      (format "(%s-%s)" http-msg (string-trim (or error-msg error-stack))))))
 	     (t (list nil http-status http-msg (concat "Unknown error: " trim-body))))))
          ((equal http-status "404");; token expired
-	  (message "TabNine token is expired, set tabnine--access-token to nil.")
+	  (unless tabnine--chat-enabled
+	    (tabnine-chat--error-no-chat-feature))
 	  (setq tabnine--access-token nil)
-	  (list nil http-status http-msg "TabNine token expired"))
+	  (list nil http-status http-msg
+		(if tabnine--chat-enabled "TabNine token expired" "TabNine Chat feature is not available")))
 	 (t (unless (progn (goto-char (point-min))
 			   (when (looking-at "^HTTP/[.0-9]+ +[0-9]+ Connection established")
 			     (string-trim
