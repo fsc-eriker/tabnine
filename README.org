@@ -24,7 +24,11 @@ An unofficial TabNine(with TabNine Chat supported) package for Emacs.
  [[file:./assets/screenshot-2.png]]
 @@html:</details>@@
 
-* Installation
+* Setup
+
+** Installation
+
+*** Install TabNine package
 
 TabNine is available on [[https://melpa.org/#/tabnine][Melpa]], you can install it with your favorite package manager.
 
@@ -168,9 +172,18 @@ dotspacemacs-additional-packages
 #+end_src
 @@html:</details>@@
 
+
+*** Install TabNine binary
+
+After installed the TabNine package, you should execute =tabnine-install-binary= interactive command to install Tabnine binary to finish installation.
+
+** TabNine configuration
+
+The advanced features(eg: advanced completions, TabNine Chat) requires a =TabNine Pro= account, open TabNine Hub page with  =tabnine-configuration= after installation. Then login with your account.
+
 ** TabNine Chat
 
-TabNine Chat is still in BETA - to join the BETA - send =Tabnine Pro= email to =support@tabnine.com= to join BETA test.
+TabNine Chat is still in BETA - to join the BETA - send =Tabnine Pro= email to =support@tabnine.com= to join BETA, while chat fails you can try with vscode to see whether the beta feature is available, also you can view you account's capabilities with =tabnine-capabilities= function.
 
 | Command                             | Prompt                                        |
 |-------------------------------------+-----------------------------------------------|

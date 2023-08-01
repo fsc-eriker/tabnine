@@ -519,12 +519,17 @@ REQUEST should be JSON-serializable object."
 
 (defun tabnine-capabilities ()
   "Query TabNine server Capabilities."
+  (interactive)
   (when-let* ((response (tabnine--request 'capabilities))
 	      (enabled-features (plist-get response :enabled_features)))
     (seq-doseq (feature enabled-features)
       (when (equal feature "plugin.feature.tabnine_chat")
 	(setq tabnine--chat-enabled t)))
-    response))
+    (if (called-interactively-p 'interactive)
+	(if tabnine--chat-enabled
+	      (message (tabnine-util--json-serialize response))
+	    (user-error "TabNine Chat feature is not available"))
+      response)))
 
 (defun tabnine-state ()
   "Query TabNine Service State."
