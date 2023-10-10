@@ -43,7 +43,7 @@ Clone or download this repository and add to your load path:
 (require 'tabnine)
 #+end_src
 
-- Other configurations, eg: enable =tabnine-mode= in =prog-mode=.
+- Other configurations, e.g. enable =tabnine-mode= in =prog-mode=.
 
 #+begin_src elisp
 (with-eval-after-load 'company
@@ -180,11 +180,11 @@ After installing the TabNine package, you should finish the installation by exec
 
 ** TabNine configuration
 
-The advanced features (e.g. advanced completions, TabNine Chat) require a =TabNine Pro= account. Open the TabNine Hub page with  =tabnine-configuration= after installation. Then login with your account.
+The advanced features (e.g. advanced completions, TabNine Chat) require a =TabNine Pro= account. Open the TabNine Hub page with =tabnine-configuration= after installation. Then login with your account.
 
 ** TabNine Chat
 
-TabNine Chat is still in BETA; to join the BETA - send =Tabnine Pro= email to =support@tabnine.com=. While chat fails you can try with vscode to see whether the beta feature is available, also you can view you account's capabilities with the =tabnine-capabilities= function.
+TabNine Chat is still in BETA; to join the BETA, send =Tabnine Pro= email to =support@tabnine.com=. While chat fails you can try with VS Code to see whether the beta feature is available, also you can view your account's capabilities with the =tabnine-capabilities= function.
 
 | Command                             | Prompt                                        |
 |-------------------------------------+-----------------------------------------------|
